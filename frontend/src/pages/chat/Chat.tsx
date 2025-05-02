@@ -12,7 +12,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { nord } from 'react-syntax-highlighter/dist/esm/styles/prism'
 
 import styles from './Chat.module.css'
-import Contoso from '../../assets/Contoso.svg'
+import Contoso from '../../assets/logo.png'
 import { XSSAllowTags } from '../../constants/sanatizeAllowables'
 
 import {
@@ -934,7 +934,7 @@ const Chat = () => {
               </Stack>
               <QuestionInput
                 clearOnSend
-                placeholder="Type a new question..."
+                placeholder="What machine problem can I help solve today?"
                 disabled={isLoading}
                 onSend={(question, id) => {
                   appStateContext?.state.isCosmosDBAvailable?.cosmosDB

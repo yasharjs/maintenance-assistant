@@ -32,9 +32,10 @@
 }
 
 .headerIcon {
-  height: 32px;
+  height: 60px;
   width: auto;
   margin-left: 36px;
+  padding: 5px;
 }
 
 .shareButtonContainer {
