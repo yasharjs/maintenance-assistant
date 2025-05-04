@@ -799,7 +799,7 @@ const Chat = () => {
               <div className={styles.chatMessageStream} style={{ marginBottom: isLoading ? '40px' : '0px' }} role="log">
                 {messages.map((answer, index) => (
                   
-                  <>
+                  <div key={`${answer.id}-${index}`}>
                     {answer.role === 'user' ? (
                       <div className={styles.chatMessageUser} tabIndex={0}>
                         <div className={styles.chatMessageUserMessage}>
@@ -830,8 +830,9 @@ const Chat = () => {
                         <span className={styles.chatMessageErrorContent}>{typeof answer.content === "string" && answer.content}</span>
                       </div>
                     ) : null}
-                  </>
+                  </div>
                 ))}
+              
                 {showLoadingMessage && (
                   <>
                     <div className={styles.chatMessageGpt}>
@@ -850,6 +851,7 @@ const Chat = () => {
                 <div ref={chatMessageStreamEnd} />
               </div>
             )}
+          
 
             <Stack horizontal className={styles.chatInput}>
               {isLoading && messages.length > 0 && (
