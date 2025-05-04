@@ -253,14 +253,13 @@ async def init_cosmosdb_client():
 
 def prepare_model_args(request_body, request_headers):
     request_messages = request_body.get("messages", [])
-    messages = []
-    if not app_settings.datasource:
-        messages = [
-            {
-                "role": "system",
-                "content": app_settings.azure_openai.system_message
-            }
-        ]
+    messages = [
+    {
+        "role": "system",
+        "content": app_settings.azure_openai.system_message
+    }
+    ] + request_messages   
+
 
     for message in request_messages:
         if message:
