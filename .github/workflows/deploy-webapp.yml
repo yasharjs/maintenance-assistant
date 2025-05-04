@@ -1,0 +1,49 @@
+name: Build and Deploy Fullstack App to Azure App Service
+
+on:
+  push:
+    branches:
+      - main # change this if your deploy branch is different
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "16" # or whatever your frontend uses
+
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: npm install
+
+      - name: Build frontend
+        working-directory: ./frontend
+        run: npm run build
+
+      - name: Copy frontend build to static folder
+        run: |
+          rm -rf static/*
+          cp -r frontend/dist/* static/ || cp -r frontend/build/* static/ || echo "No build folder found"
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v2
+        with:
+          app-name: MaintenanceAgent
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: .
