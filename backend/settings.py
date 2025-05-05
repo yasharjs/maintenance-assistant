@@ -45,7 +45,7 @@ class _UiSettings(BaseSettings):
     logo: Optional[str] = None
     chat_logo: Optional[str] = None
     chat_title: str = "Maintenance Assistant"
-    chat_description: str = "Helping you troubleshoot and maintain Husky HyPET, Hylectric, and Quadloc machines."
+    chat_description: str = "Helping you troubleshoot and maintain HyPET, Hylectric, and Quadloc machines."
     favicon: str = "/favicon.ico"
     show_share_button: bool = True
     show_chat_history_button: bool = True
