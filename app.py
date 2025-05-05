@@ -258,7 +258,7 @@ def prepare_model_args(request_body, request_headers):
         "role": "system",
         "content": app_settings.azure_openai.system_message
     }
-    ]   
+    ] 
 
 
     for message in request_messages:
