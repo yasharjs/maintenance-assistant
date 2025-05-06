@@ -41,10 +41,10 @@ class _UiSettings(BaseSettings):
         env_ignore_empty=True
     )
 
-    title: str = "Maintenance Assistant"
+    title: str = "Maintenance Agent"
     logo: Optional[str] = None
     chat_logo: Optional[str] = None
-    chat_title: str = "Maintenance Assistant"
+    chat_title: str = "Maintenance Agent"
     chat_description: str = "Helping you troubleshoot and maintain HyPET, Hylectric, and Quadloc machines."
     favicon: str = "/favicon.ico"
     show_share_button: bool = True

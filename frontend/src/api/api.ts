@@ -2,6 +2,21 @@ import { chatHistorySampleData } from '../constants/chatHistory'
 
 import { ChatMessage, Conversation, ConversationRequest, CosmosDBHealth, CosmosDBStatus, UserInfo } from './models'
 
+/**
+ * Sends a user conversation to the backend for AI processing.
+ * 
+ * This function makes a POST request to the '/conversation' API endpoint,
+ * sending the user's chat messages as the request body.
+ * The backend is expected to respond with a generated reply (e.g., from a language model).
+ * 
+ * @param options - An object containing the `messages` array (user and system prompts).
+ *                  It follows the `ConversationRequest` type, likely including roles and content.
+ * @param abortSignal - An optional AbortSignal that allows the request to be cancelled if needed
+ *                      (e.g. if the user navigates away or stops the message).
+ * 
+ * @returns A `Response` object from the fetch call, which should be parsed (e.g. with `.json()`)
+ *          by the calling code to retrieve the actual AI reply.
+ */
 export async function conversationApi(options: ConversationRequest, abortSignal: AbortSignal): Promise<Response> {
   const response = await fetch('/conversation', {
     method: 'POST',
@@ -17,6 +32,16 @@ export async function conversationApi(options: ConversationRequest, abortSignal:
   return response
 }
 
+/**
+ * Retrieves the authenticated user's identity information.
+ * 
+ * This function queries the built-in authentication endpoint (`/.auth/me`)
+ * to obtain details about the signed-in user from the identity provider.
+ * If the request fails (e.g., no login detected), it returns an empty array,
+ * indicating that chat access should be restricted.
+ * 
+ * @returns A Promise resolving to an array of `UserInfo` objects.
+ */
 export async function getUserInfo(): Promise<UserInfo[]> {
   const response = await fetch('/.auth/me')
   if (!response.ok) {
