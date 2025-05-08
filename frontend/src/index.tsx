@@ -1,3 +1,5 @@
+//This file sets up the React application, initializes routing, and renders the main App component into the DOM.
+// It acts as the starting point for the app's execution.
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { HashRouter, Route, Routes } from 'react-router-dom'
