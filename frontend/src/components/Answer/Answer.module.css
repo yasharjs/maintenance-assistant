@@ -1,44 +1,36 @@
+/* ANSWER CONTAINER - like chat bubble but borderless */
 .answerContainer {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  padding: 8.1285px;
-  gap: 5.42px;
-  background: #ffffff;
-  box-shadow:
-    0px 1px 2px rgba(0, 0, 0, 0.14),
-    0px 0px 2px rgba(0, 0, 0, 0.12);
-  border-radius: 5.419px;
+  padding: 16px 20px;
+  margin: 0 auto 12px auto;
+  background: transparent;
+  border-radius: 12px;
+  width: 100%;
+  max-width: 840px;
 }
 
+/* TEXT */
 .answerText {
-  font-style: normal;
-  font-weight: 400;
-  font-size: 14px;
-  line-height: 20px;
-  color: #323130;
-  flex: none;
-  order: 1;
-  align-self: stretch;
-  flex-grow: 0;
-  margin: 11px;
+  font-size: 15px;
+  line-height: 24px;
+  color: #2e2e2e;
+  margin-bottom: 8px;
   white-space: normal;
   word-wrap: break-word;
-  max-width: 800px;
-  overflow-x: auto;
+  max-width: 100%;
 }
 
 .answerHeader {
   position: relative;
 }
 
+/* FEEDBACK ICONS BELOW THE TEXT */
 .answerFooter {
   display: flex;
-  flex-flow: row nowrap;
-  width: 100%;
-  height: auto;
-  box-sizing: border-box;
-  justify-content: space-between;
+  justify-content: flex-start;
+
 }
 
 .answerDisclaimerContainer {
@@ -84,6 +76,7 @@
   gap: 4px;
   border: 1px solid #d1d1d1;
   border-radius: 4px;
+  margin-top: 4px;
 }
 
 .citationContainer:hover {
@@ -112,6 +105,7 @@
   text-align: center;
   color: #424242;
   cursor: pointer;
+
 }
 
 .citation:hover {
@@ -126,6 +120,7 @@
   align-items: center;
   padding: 0px;
   margin-top: 4px;
+  margin-bottom: 4px;
   color: #616161;
   font-size: 10px;
 }
@@ -200,4 +195,32 @@ sup {
   .answerDisclaimer {
     margin-bottom: 5px;
   }
+}
+
+.feedbackIcon {
+  width: 20px;
+  height: 20px;
+  margin-right: 12px;
+  transition: transform 0.2s ease, color 0.2s ease;
+  cursor: pointer;
+  color: #999;
+  font-size: 18px;
+}
+
+.feedbackIcon:hover {
+  transform: scale(1.2);
+  color: #0078d4;
+}
+
+.copyIcon {
+  width: 20px;
+  height: 20px;
+  color: #000000;
+  cursor: pointer;
+  transition: color 0.2s ease, transform 0.2s ease;
+}
+
+.copyIcon:hover {
+  color: #0078d4;
+  transform: scale(1.2);
 }
