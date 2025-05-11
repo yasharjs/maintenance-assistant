@@ -10,10 +10,7 @@ interface SuggestedPromptsProps {
 }
 
 const prompts = [
-  "What are the maintenance steps for an HVAC system?",
-  "How do I troubleshoot a leaking pipe?",
-  "What are the safety checks for electrical equipment?",
-  "How often should I replace air filters?"
+  "How can I get the most accurate answers from you?",
 ];
 
 const SuggestedPrompts: React.FC<SuggestedPromptsProps> = ({ onSelect }) => {
@@ -36,7 +33,7 @@ const SuggestedPrompts: React.FC<SuggestedPromptsProps> = ({ onSelect }) => {
                 whileHover={{ scale: 1.02 }}
                 transition={{
                   delay: index * 0.08,
-                  duration: 0.4,
+                  duration: 0.2,
                   ease: 'easeOut',
                   type: 'tween',
                 }}

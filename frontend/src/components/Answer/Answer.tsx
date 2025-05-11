@@ -11,8 +11,11 @@ import supersub from 'remark-supersub'
 import { AskResponse, Citation, Feedback, historyMessageFeedback } from '../../api'
 import { XSSAllowTags, XSSAllowAttributes } from '../../constants/sanatizeAllowables'
 import { AppStateContext } from '../../state/AppProvider'
-
+import { TooltipHost } from '@fluentui/react';
 import { parseAnswer } from './AnswerParser'
+
+import { DocumentDuplicateIcon, ClipboardDocumentCheckIcon } from '@heroicons/react/24/solid';
+
 
 import styles from './Answer.module.css'
 
@@ -30,7 +33,7 @@ export const Answer = ({ answer, onCitationClicked, onExectResultClicked }: Prop
     if (Object.values(Feedback).includes(answer.feedback)) return answer.feedback
     return Feedback.Neutral
   }
-
+  const [copied, setCopied] = useState(false);
   const [isRefAccordionOpen, { toggle: toggleIsRefAccordionOpen }] = useBoolean(false)
   const filePathTruncationLimit = 50
 
@@ -44,6 +47,13 @@ export const Answer = ({ answer, onCitationClicked, onExectResultClicked }: Prop
   const FEEDBACK_ENABLED =
     appStateContext?.state.frontendSettings?.feedback_enabled && appStateContext?.state.isCosmosDBAvailable?.cosmosDB
   const SANITIZE_ANSWER = appStateContext?.state.frontendSettings?.sanitize_answer
+
+  const handleCopy = () => {
+    const text = parsedAnswer?.markdownFormatText ?? '';
+    navigator.clipboard.writeText(text);     // ✅ Copy to clipboard
+    setCopied(true);                         // ✅ Show checkmark icon
+    setTimeout(() => setCopied(false), 2000) // ⏳ Revert icon after 2s
+  };
 
   const handleChevronClick = () => {
     setChevronIsExpanded(!chevronIsExpanded)
@@ -260,33 +270,7 @@ export const Answer = ({ answer, onCitationClicked, onExectResultClicked }: Prop
               />}
             </Stack.Item>
             <Stack.Item className={styles.answerHeader}>
-              {FEEDBACK_ENABLED && answer.message_id !== undefined && (
-                <Stack horizontal horizontalAlign="space-between">
-                  <ThumbLike20Filled
-                    aria-hidden="false"
-                    aria-label="Like this response"
-                    onClick={() => onLikeResponseClicked()}
-                    style={
-                      feedbackState === Feedback.Positive ||
-                        appStateContext?.state.feedbackState[answer.message_id] === Feedback.Positive
-                        ? { color: 'darkgreen', cursor: 'pointer' }
-                        : { color: 'slategray', cursor: 'pointer' }
-                    }
-                  />
-                  <ThumbDislike20Filled
-                    aria-hidden="false"
-                    aria-label="Dislike this response"
-                    onClick={() => onDislikeResponseClicked()}
-                    style={
-                      feedbackState !== Feedback.Positive &&
-                        feedbackState !== Feedback.Neutral &&
-                        feedbackState !== undefined
-                        ? { color: 'darkred', cursor: 'pointer' }
-                        : { color: 'slategray', cursor: 'pointer' }
-                    }
-                  />
-                </Stack>
-              )}
+
             </Stack.Item>
           </Stack>
         </Stack.Item>
@@ -298,6 +282,43 @@ export const Answer = ({ answer, onCitationClicked, onExectResultClicked }: Prop
           </Stack>
         )}
         <Stack horizontal className={styles.answerFooter}>
+          {FEEDBACK_ENABLED && answer.message_id !== undefined && (
+            <Stack horizontal horizontalAlign="space-between">
+              <TooltipHost content="Good response" id="likeTooltip" calloutProps={{ gapSpace: 4 }}>
+                <ThumbLike20Filled
+                  className={styles.feedbackIcon}
+                  title="This was helpful"
+                  aria-label="Like this response"
+                  onClick={onLikeResponseClicked}
+                  style={{
+                    color:
+                      feedbackState === Feedback.Positive ? '#11d750' : 'inherit'
+                  }}
+                />
+              </TooltipHost>
+              <TooltipHost content="Bad response" id="likeTooltip" calloutProps={{ gapSpace: 4 }}>
+                <ThumbDislike20Filled
+                  className={styles.feedbackIcon}
+                  aria-label="Dislike this response"
+                  onClick={onDislikeResponseClicked}
+                  style={{
+                    color:
+                      feedbackState === Feedback.Negative ? '#d41430' : 'inherit'
+                  }}
+                />
+              </TooltipHost>
+              <TooltipHost content={copied ? "Copied!" : "Copy to clipboard"}>
+                {copied ? (
+                  <ClipboardDocumentCheckIcon className={styles.copyIcon} />
+                ) : (
+                  <DocumentDuplicateIcon
+                    className={styles.copyIcon}
+                    onClick={handleCopy}
+                  />
+                )}
+              </TooltipHost>
+            </Stack>
+          )}
           {!!parsedAnswer?.citations.length && (
             <Stack.Item onKeyDown={e => (e.key === 'Enter' || e.key === ' ' ? toggleIsRefAccordionOpen() : null)}>
               <Stack style={{ width: '100%' }}>
@@ -323,9 +344,7 @@ export const Answer = ({ answer, onCitationClicked, onExectResultClicked }: Prop
               </Stack>
             </Stack.Item>
           )}
-          <Stack.Item className={styles.answerDisclaimerContainer}>
-            <span className={styles.answerDisclaimer}>AI-generated content may be incorrect</span>
-          </Stack.Item>
+
           {!!answer.exec_results?.length && (
             <Stack.Item onKeyDown={e => (e.key === 'Enter' || e.key === ' ' ? toggleIsRefAccordionOpen() : null)}>
               <Stack style={{ width: '100%' }}>

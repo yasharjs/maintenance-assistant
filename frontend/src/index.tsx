@@ -9,6 +9,7 @@ import Chat from './pages/chat/Chat'
 import Layout from './pages/layout/Layout'
 import NoPage from './pages/NoPage'
 import { AppStateProvider } from './state/AppProvider'
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
 
 import './index.css'
 
