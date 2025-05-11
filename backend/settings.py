@@ -41,11 +41,11 @@ class _UiSettings(BaseSettings):
         env_ignore_empty=True
     )
 
-    title: str = "Maintenance Agent"
+    title: str = "Amcor Agent"
     logo: Optional[str] = None
     chat_logo: Optional[str] = None
-    chat_title: str = "Maintenance Agent"
-    chat_description: str = "Helping you troubleshoot and maintain HyPET, Hylectric, and Quadloc machines."
+    chat_title: str = "Amcor Agent"
+    chat_description: str = "Expert AI for injection molding maintenance, training, and troubleshooting."
     favicon: str = "/favicon.ico"
     show_share_button: bool = True
     show_chat_history_button: bool = True

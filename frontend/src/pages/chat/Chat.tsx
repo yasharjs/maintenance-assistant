@@ -1,6 +1,7 @@
 import { useRef, useState, useEffect, useContext, useLayoutEffect } from 'react'
 import { CommandBarButton, IconButton, Dialog, DialogType, Stack } from '@fluentui/react'
 import { SquareRegular, ShieldLockRegular, ErrorCircleRegular } from '@fluentui/react-icons'
+import SuggestedPrompts from '../../components/SuggestedPrompts'; // Import SuggestedPrompts
 
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -65,7 +66,16 @@ const Chat = () => {
   const [errorMsg, setErrorMsg] = useState<ErrorMessage | null>()
   const [logo, setLogo] = useState('')
   const [answerId, setAnswerId] = useState<string>('')
+  const [chatInput, setChatInput] = useState<string>(''); // State for the chat input field
+  const handlePromptSelect = (prompt: string) => {
+    setChatInput(prompt); // Inject the selected prompt into the input field
+     // Automatically send the prompt
+    appStateContext?.state.isCosmosDBAvailable?.cosmosDB
+      ? makeApiRequestWithCosmosDB(prompt)
+      : makeApiRequestWithoutCosmosDB(prompt);
 
+    setChatInput(''); // Clear the input field after sending
+  };
   const errorDialogContentProps = {
     type: DialogType.close,
     title: errorMsg?.title,
@@ -794,6 +804,7 @@ const Chat = () => {
                 <img src={logo} className={styles.chatIcon} aria-hidden="true" />
                 <h1 className={styles.chatEmptyStateTitle}>{ui?.chat_title}</h1>
                 <h2 className={styles.chatEmptyStateSubtitle}>{ui?.chat_description}</h2>
+                <SuggestedPrompts onSelect={handlePromptSelect} />
               </Stack>
             ) : (
               <div className={styles.chatMessageStream} style={{ marginBottom: isLoading ? '40px' : '0px' }} role="log">
@@ -936,12 +947,15 @@ const Chat = () => {
               </Stack>
               <QuestionInput
                 clearOnSend
-                placeholder="What machine problem can I help solve today?"
+                placeholder="How can I assist you today?"
+                value={chatInput} // Bind input to chatInput state
+                onChange={(e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setChatInput(e.target.value)}
                 disabled={isLoading}
                 onSend={(question, id) => {
                   appStateContext?.state.isCosmosDBAvailable?.cosmosDB
                     ? makeApiRequestWithCosmosDB(question, id)
                     : makeApiRequestWithoutCosmosDB(question, id)
+                  setChatInput(''); // Clear input after sending
                 }}
                 conversationId={
                   appStateContext?.state.currentChat?.id ? appStateContext?.state.currentChat?.id : undefined

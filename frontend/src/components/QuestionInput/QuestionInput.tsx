@@ -10,6 +10,8 @@ import { AppStateContext } from '../../state/AppProvider'
 import { resizeImage } from '../../utils/resizeImage'
 
 interface Props {
+  value: string;
+  onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => void;
   onSend: (question: ChatMessage['content'], id?: string) => void
   disabled: boolean
   placeholder?: string
