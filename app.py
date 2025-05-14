@@ -570,7 +570,7 @@ async def stream_chat_request(request_body, request_headers):
 
     return generate(apim_request_id=apim_request_id, history_metadata=history_metadata)
 
-
+# This function handles the core logic for processing the user's message.
 async def conversation_internal(request_body, request_headers):
     try:
         if app_settings.azure_openai.stream and not app_settings.base_settings.use_promptflow:
