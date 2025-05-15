@@ -35,13 +35,15 @@ from backend.utils import (
     convert_to_pf_format,
     format_pf_non_streaming_response,
 )
-
+# Defines a modular route group with access to static files for UI rendering
 bp = Blueprint("routes", __name__, static_folder="static", template_folder="static")
 
+# Async flag to signal when Cosmos DB is initialized and ready for use
 cosmos_db_ready = asyncio.Event()
 
-
+# Factory function that creates and configures the Quart app instance
 def create_app():
+    # Instantiate app
     app = Quart(__name__)
     
 
@@ -54,11 +56,11 @@ def create_app():
                 "identity_provider": "local"
             }
         ])
-    
+    # Register route blueprints
     app.register_blueprint(bp)
     app.config["TEMPLATES_AUTO_RELOAD"] = True
 
-    
+    # Run before first request
     @app.before_serving
     async def init():
         try:
@@ -203,6 +205,7 @@ async def init_openai_client():
         azure_openai_client = None
         raise e
 
+# sends a request to an Azure Function endpoint to execute a specific tool or function call with the provided name and arguments, returning the function's response.
 async def openai_remote_azure_function_call(function_name, function_args):
     if app_settings.azure_openai.function_call_azure_functions_enabled is not True:
         return
