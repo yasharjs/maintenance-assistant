@@ -11,6 +11,7 @@ interface SuggestedPromptsProps {
 
 const prompts = [
   "How can I get the most accurate answers from you?",
+  "What can you help me with? "
 ];
 
 const SuggestedPrompts: React.FC<SuggestedPromptsProps> = ({ onSelect }) => {
