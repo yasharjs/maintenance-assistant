@@ -1086,6 +1086,7 @@ async def generate_title(conversation_messages) -> str:
         azure_endpoint=app_settings.azure_openai.endpoint,
         api_key=app_settings.azure_openai.key
     )
+    
 
     # Create an AssistantAgent
     agent = AssistantAgent(

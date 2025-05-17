@@ -45,7 +45,7 @@ class _UiSettings(BaseSettings):
     logo: Optional[str] = None
     chat_logo: Optional[str] = None
     chat_title: str = "Amcor Agent"
-    chat_description: str = "Expert AI for injection molding maintenance, training, and troubleshooting."
+    chat_description: str = "Your expert AI, empowering you to do more."
     favicon: str = "/favicon.ico"
     show_share_button: bool = True
     show_chat_history_button: bool = True

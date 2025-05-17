@@ -966,7 +966,7 @@ const Chat = () => {
               </Stack>
               <QuestionInput
                 clearOnSend
-                placeholder="How can I assist you today?"
+                placeholder="Need support?"
                 value={chatInput} // Bind input to chatInput state
                 onChange={(e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setChatInput(e.target.value)}
                 disabled={isLoading}
