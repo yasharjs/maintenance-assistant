@@ -36,6 +36,10 @@ from backend.utils import (
     format_pf_non_streaming_response,
 )
 
+from autogen_agentchat.agents import AssistantAgent
+from autogen_agentchat.messages import TextMessage
+from autogen_ext.models.openai import AzureOpenAIChatCompletionClient
+
 bp = Blueprint("routes", __name__, static_folder="static", template_folder="static")
 
 cosmos_db_ready = asyncio.Event()
@@ -1048,26 +1052,72 @@ async def ensure_cosmos():
 
 async def generate_title(conversation_messages) -> str:
     ## make sure the messages are sorted by _ts descending
-    title_prompt = "Summarize the conversation so far into a 4-word or less title. Do not use any quotation marks or punctuation. Do not include any other commentary or description."
+    # title_prompt = "Summarize the conversation so far into a 4-word or less title. Do not use any quotation marks or punctuation. Do not include any other commentary or description."
 
-    messages = [
-        {"role": msg["role"], "content": msg["content"]}
+    # messages = [
+    #     {"role": msg["role"], "content": msg["content"]}
+    #     for msg in conversation_messages
+    # ]
+    # messages.append({"role": "user", "content": title_prompt})
+
+    # try:
+    #     azure_openai_client = await init_openai_client()
+    #     response = await azure_openai_client.chat.completions.create(
+    #         model=app_settings.azure_openai.model, messages=messages, temperature=1, max_tokens= 800
+    #     )
+
+    #     title = response.choices[0].message.content
+    #     return title
+    # except Exception as e:
+    #     logging.exception("Exception while generating title", e)
+    #     return messages[-2]["content"]
+
+    #Testing Autogen
+    # Create Azure OpenAI client using AutoGen's model client
+    # sorted_messages = sorted(conversation_messages, key=lambda x: x["_ts"], reverse=True)
+    model_client = AzureOpenAIChatCompletionClient(
+        azure_deployment=app_settings.azure_openai.model,
+        model=app_settings.azure_openai.model,
+        api_version=app_settings.azure_openai.preview_api_version,
+        azure_endpoint=app_settings.azure_openai.endpoint,
+        api_key=app_settings.azure_openai.key
+    )
+
+    # Create an AssistantAgent
+    agent = AssistantAgent(
+        name="title_agent",
+        model_client=model_client,
+        system_message="Summarize the conversation so far into a 4-word or less title. Do not use any quotation marks or punctuation. Do not include any other commentary or description.",
+    )
+
+    # Build conversation history as AutoGen TextMessages
+    agent_messages = [
+        TextMessage(source=msg["role"], content=msg["content"])
         for msg in conversation_messages
     ]
-    messages.append({"role": "user", "content": title_prompt})
+
+    agent_messages.append(
+        TextMessage(
+            source="user",
+            content="Summarize the conversation so far into a 4-word or less title. Do not use any quotation marks or punctuation. Do not include any other commentary or description.",
+        )
+    )
 
     try:
-        azure_openai_client = await init_openai_client()
-        response = await azure_openai_client.chat.completions.create(
-            model=app_settings.azure_openai.model, messages=messages, temperature=1, max_tokens= 800
-        )
-
-        title = response.choices[0].message.content
-        return title
+        # Use agent.run with messages
+        result = await agent.run(task=agent_messages)
+        # Extract the agent's last message as the title
+        last_message = result.messages[-1]
+        if isinstance(last_message, TextMessage):
+            return last_message.content.strip()
+        else:
+            logging.warning("Unexpected message type from agent")
+            return agent_messages[-2].content  # Fallback to last message before title prompt
     except Exception as e:
         logging.exception("Exception while generating title", e)
-        return messages[-2]["content"]
-
+        return agent_messages[-2].content
+    finally:
+        await model_client.close()  # Always close the client to clean up connections
 
 app = create_app()
 
