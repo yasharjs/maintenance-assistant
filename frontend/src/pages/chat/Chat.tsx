@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect, useContext, useLayoutEffect } from 'react'
 import { CommandBarButton, IconButton, Dialog, DialogType, Stack } from '@fluentui/react'
-import { RecordStopRegular, SquareRegular, ShieldLockRegular, ErrorCircleRegular } from '@fluentui/react-icons'
+import { DeleteRegular, RecordStopRegular, SquareRegular, ShieldLockRegular, ErrorCircleRegular } from '@fluentui/react-icons'
 import SuggestedPrompts from '../../components/SuggestedPrompts'; // Import SuggestedPrompts
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -46,6 +46,8 @@ const enum messageStatus {
 }
 
 const Chat = () => {
+  const [isHoveringDelete, setIsHoveringDelete] = useState(false);
+
   const appStateContext = useContext(AppStateContext)
   const ui = appStateContext?.state.frontendSettings?.ui
   const AUTH_ENABLED = appStateContext?.state.frontendSettings?.auth_enabled
@@ -897,6 +899,13 @@ const Chat = () => {
                       },
                       rootDisabled: {
                         background: '#F0F0F0'
+                      },
+                      rootHovered: {
+                        selectors: {
+                          '.ms-Button-icon': {
+                            color: '#111111'
+                          }
+                        }
                       }
                     }}
                     className={styles.newChatIcon}
@@ -908,36 +917,47 @@ const Chat = () => {
                 )}
                 <CommandBarButton
                   role="button"
-                  styles={{
-                    icon: {
-                      color: '#FFFFFF'
-                    },
-                    iconDisabled: {
-                      color: '#BDBDBD !important'
-                    },
-                    root: {
-                      color: '#FFFFFF',
-                      background:
-                        'radial-gradient(109.81% 107.82% at 100.1% 90.19%, #0F6CBD 33.63%, #2D87C3 70.31%, #8DDDD8 100%)'
-                    },
-                    rootDisabled: {
-                      background: '#F0F0F0'
-                    }
-                  }}
                   className={
                     appStateContext?.state.isCosmosDBAvailable?.status !== CosmosDBStatus.NotConfigured
                       ? styles.clearChatBroom
                       : styles.clearChatBroomNoCosmos
                   }
-                  iconProps={{ iconName: 'Broom' }}
+                  onMouseEnter={() => {
+                    if (!disabledButton()) setIsHoveringDelete(true);
+                  }}
+                  onMouseLeave={() => setIsHoveringDelete(false)}
                   onClick={
                     appStateContext?.state.isCosmosDBAvailable?.status !== CosmosDBStatus.NotConfigured
                       ? clearChat
                       : newChat
                   }
                   disabled={disabledButton()}
+                  onRenderIcon={() => (
+                    <DeleteRegular
+                      style={{
+                        color: disabledButton()
+                          ? 'darkgrey'
+                          : isHoveringDelete
+                            ? 'black'
+                            : 'white',
+                        fontSize: 18,
+                        transition: 'color 0.2s ease'
+                      }}
+                    />
+                  )}
+                  styles={{
+                    root: {
+                      background:
+                        'radial-gradient(109.81% 107.82% at 100.1% 90.19%, #0F6CBD 33.63%, #2D87C3 70.31%, #8DDDD8 100%)',
+                      transition: 'all 0.2s ease'
+                    },
+                    rootDisabled: {
+                      background: '#F0F0F0'
+                    }
+                  }}
                   aria-label="clear chat button"
                 />
+
                 <Dialog
                   hidden={hideErrorDialog}
                   onDismiss={handleErrorDialogClose}

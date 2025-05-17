@@ -30,11 +30,13 @@
 }
 
 .chatEmptyState {
+
   flex-grow: 1;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
+  margin-bottom: 160px;
 }
 
 .chatEmptyStateTitle {
@@ -67,15 +69,18 @@
 }
 
 .chatMessageStream {
+
   flex-grow: 1;
   max-width: 1028px;
   width: 100%;
-  overflow-y: auto;
+  overflow-y: visible;
   padding-left: 24px;
   padding-right: 24px;
   display: flex;
   flex-direction: column;
   margin-top: 24px;
+  padding-bottom: 160px;
+
 }
 
 .chatMessageUser {
@@ -87,9 +92,9 @@
 .chatMessageUserMessage {
   position: relative;
   display: flex;
-  padding: 20px;
+  padding: 15px;
   background: #f2f2f2;
-  border-radius: 8px;
+  border-radius: 20px;
   box-shadow:
     0px 2px 4px rgba(0, 0, 0, 0.14),
     0px 0px 2px rgba(0, 0, 0, 0.12);
@@ -139,16 +144,28 @@
 }
 
 .chatInput {
-  position: sticky;
-  flex: 0 0 100px;
+
+  height: fit-content;
+  position: fixed;
+  /* fixed to stay in viewport */
+  bottom: 160px;
+  /* anchored to the bottom */
+  left: 0;
+  right: 0;
   padding-top: 12px;
   padding-bottom: 24px;
-  padding-left: 24px;
-  padding-right: 24px;
-  width: calc(100% - 100px);
+
+  width: 100%;
+  /* full width */
   max-width: 1028px;
-  margin-bottom: 50px;
-  margin-top: 8px;
+  /* keep consistent width */
+  margin: 0 auto;
+  /* center it horizontally */
+
+  background: white;
+  /* optional, so it doesn't look cut off */
+  z-index: 1000;
+  /* stays above everything else */
 }
 
 .clearChatBroom {
@@ -163,8 +180,9 @@
   left: 7px;
   top: 13px;
   color: #ffffff;
-  border-radius: 4px;
+  border-radius: 20px;
   z-index: 1;
+
 }
 
 .clearChatBroomNoCosmos {
@@ -179,7 +197,7 @@
   left: 7px;
   top: 66px;
   color: #ffffff;
-  border-radius: 4px;
+  border-radius: 8px;
   z-index: 1;
 }
 
@@ -189,13 +207,14 @@
   flex-direction: row;
   justify-content: center;
   align-items: center;
+
   position: absolute;
   width: 40px;
   height: 40px;
   left: 7px;
   top: 66px;
   color: #ffffff;
-  border-radius: 4px;
+  border-radius: 20px;
   z-index: 1;
 }
 
