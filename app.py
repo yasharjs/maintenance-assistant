@@ -40,6 +40,12 @@ from autogen_agentchat.agents import AssistantAgent
 from autogen_agentchat.messages import TextMessage
 from autogen_ext.models.openai import AzureOpenAIChatCompletionClient
 
+from langchain_openai import AzureChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+from langchain.agents import initialize_agent
+from langchain.agents.agent_types import AgentType
+from langchain_core.tools import tool
+
 # Defines a modular route group with access to static files for UI rendering
 bp = Blueprint("routes", __name__, static_folder="static", template_folder="static")
 
@@ -636,7 +642,12 @@ async def add_conversation():
         # check for the conversation_id, if the conversation is not set, we will create a new one
         history_metadata = {}
         if not conversation_id:
-            title = await generate_title(request_json["messages"])
+            try:
+               title = await run_agent_on_conversation(request_json["messages"])
+            except Exception as e:
+               logging.warning("Agent failed, falling back to direct title")
+               title = await generate_title(request_json["messages"])
+
             conversation_dict = await current_app.cosmos_conversation_client.create_conversation(
                 user_id=user_id, title=title
             )
@@ -1053,76 +1064,59 @@ async def ensure_cosmos():
         else:
             return jsonify({"error": "CosmosDB is not working"}), 500
 
+@tool
+async def generate_title(conversation_messages: str) -> str:
+    """
+    Summarizes a conversation string into a short 4-word title. 
+    Do not use punctuation or quotation marks.
+    """
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", "Summarize the conversation so far into a 4-word or less title. "
+                   "Do not use any quotation marks or punctuation."),
+        ("user", conversation_messages)
+    ])
 
-async def generate_title(conversation_messages) -> str:
-    ## make sure the messages are sorted by _ts descending
-    # title_prompt = "Summarize the conversation so far into a 4-word or less title. Do not use any quotation marks or punctuation. Do not include any other commentary or description."
-
-    # messages = [
-    #     {"role": msg["role"], "content": msg["content"]}
-    #     for msg in conversation_messages
-    # ]
-    # messages.append({"role": "user", "content": title_prompt})
-
-    # try:
-    #     azure_openai_client = await init_openai_client()
-    #     response = await azure_openai_client.chat.completions.create(
-    #         model=app_settings.azure_openai.model, messages=messages, temperature=1, max_tokens= 800
-    #     )
-
-    #     title = response.choices[0].message.content
-    #     return title
-    # except Exception as e:
-    #     logging.exception("Exception while generating title", e)
-    #     return messages[-2]["content"]
-
-    #Testing Autogen
-    # Create Azure OpenAI client using AutoGen's model client
-    # sorted_messages = sorted(conversation_messages, key=lambda x: x["_ts"], reverse=True)
-    model_client = AzureOpenAIChatCompletionClient(
-        azure_deployment=app_settings.azure_openai.model,
-        model=app_settings.azure_openai.model,
-        api_version=app_settings.azure_openai.preview_api_version,
+    llm = AzureChatOpenAI(
+        openai_api_key=app_settings.azure_openai.key,
         azure_endpoint=app_settings.azure_openai.endpoint,
-        api_key=app_settings.azure_openai.key
-    )
-    
-
-    # Create an AssistantAgent
-    agent = AssistantAgent(
-        name="title_agent",
-        model_client=model_client,
-        system_message="Summarize the conversation so far into a 4-word or less title. Do not use any quotation marks or punctuation. Do not include any other commentary or description.",
+        deployment_name=app_settings.azure_openai.model,
+        openai_api_version=app_settings.azure_openai.preview_api_version,
+        temperature=1,
+        max_tokens=20
     )
 
-    # Build conversation history as AutoGen TextMessages
-    agent_messages = [
-        TextMessage(source=msg["role"], content=msg["content"])
-        for msg in conversation_messages
-    ]
+    chain = prompt | llm
+    result = await chain.ainvoke({})
+    return result.content.strip()
 
-    agent_messages.append(
-        TextMessage(
-            source="user",
-            content="Summarize the conversation so far into a 4-word or less title. Do not use any quotation marks or punctuation. Do not include any other commentary or description.",
-        )
+
+async def run_agent_on_conversation(conversation_messages) -> str:
+    # Convert message list to a plain conversation string
+    conversation = "\n".join(
+        f"{msg['role']}: {msg['content']}" for msg in conversation_messages
     )
 
-    try:
-        # Use agent.run with messages
-        result = await agent.run(task=agent_messages)
-        # Extract the agent's last message as the title
-        last_message = result.messages[-1]
-        if isinstance(last_message, TextMessage):
-            return last_message.content.strip()
-        else:
-            logging.warning("Unexpected message type from agent")
-            return agent_messages[-2].content  # Fallback to last message before title prompt
-    except Exception as e:
-        logging.exception("Exception while generating title", e)
-        return agent_messages[-2].content
-    finally:
-        await model_client.close()  # Always close the client to clean up connections
+    # Init LLM
+    llm = AzureChatOpenAI(
+        openai_api_key=app_settings.azure_openai.key,
+        azure_endpoint=app_settings.azure_openai.endpoint,
+        deployment_name=app_settings.azure_openai.model,
+        openai_api_version=app_settings.azure_openai.preview_api_version,
+        temperature=0
+    )
+
+    # Agent setup
+    agent = initialize_agent(
+        tools=[generate_title],
+        llm=llm,
+        agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
+        verbose=True
+    )
+
+    # Ask agent to use tool to generate title
+    result = await agent.ainvoke("Summarize this conversation into a short title:\n" + conversation)
+
+    return result.output
 
 app = create_app()
 
