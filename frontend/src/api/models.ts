@@ -37,6 +37,7 @@ export type AzureSqlServerExecResults = {
   all_exec_results: AzureSqlServerExecResult[]
 }
 
+//added citations to the ChatMessage model
 export type ChatMessage = {
   id: string
   role: string
@@ -45,6 +46,7 @@ export type ChatMessage = {
   date: string
   feedback?: Feedback
   context?: string
+  citations?: Citation[]
 }
 
 export type ExecResults = {
@@ -70,6 +72,7 @@ export type ChatResponseChoice = {
   messages: ChatMessage[]
 }
 
+//added citations to the ChatResponseChoice model
 export type ChatResponse = {
   id: string
   model: string
@@ -82,6 +85,7 @@ export type ChatResponse = {
     date: string
   }
   error?: any
+  citations?: Citation[]
 }
 
 export type ConversationRequest = {

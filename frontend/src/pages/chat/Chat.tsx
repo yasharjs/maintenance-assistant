@@ -189,10 +189,11 @@ const Chat = () => {
         : setMessages([...messages, toolMessage, assistantMessage])
     }
   }
-
+  let latestCitations: Citation[] = []
   const makeApiRequestWithoutCosmosDB = async (question: ChatMessage["content"], conversationId?: string) => {
     setIsLoading(true)
-    setShowLoadingMessage(true)
+    setShowLoadingMessage(true
+    )
     const abortController = new AbortController()
     abortFuncs.current.unshift(abortController)
 
@@ -253,10 +254,20 @@ const Chat = () => {
               if (obj !== '' && obj !== '{}') {
                 runningText += obj
                 result = JSON.parse(runningText)
+
+                // NEW: Capture citations if present
+                if (result.citations) {
+                  latestCitations = result.citations
+                }
+
                 if (result.choices?.length > 0) {
                   result.choices[0].messages.forEach(msg => {
                     msg.id = result.id
                     msg.date = new Date().toISOString()
+                    // NEW: Attach citations to assistant message
+                    if (msg.role === 'assistant' && latestCitations.length > 0) {
+                      msg.citations = latestCitations
+                    }
                   })
                   if (result.choices[0].messages?.some(m => m.role === ASSISTANT)) {
                     setShowLoadingMessage(false)
@@ -408,14 +419,20 @@ const Chat = () => {
               if (obj !== '' && obj !== '{}') {
                 runningText += obj
                 result = JSON.parse(runningText)
-                if (!result.choices?.[0]?.messages?.[0].content) {
-                  errorResponseMessage = NO_CONTENT_ERROR
-                  throw Error()
+
+                // NEW: Capture citations if present
+                if (result.citations) {
+                  latestCitations = result.citations
                 }
+
                 if (result.choices?.length > 0) {
                   result.choices[0].messages.forEach(msg => {
                     msg.id = result.id
                     msg.date = new Date().toISOString()
+                    // NEW: Attach citations to assistant message
+                    if (msg.role === 'assistant' && latestCitations.length > 0) {
+                      msg.citations = latestCitations
+                    }
                   })
                   if (result.choices[0].messages?.some(m => m.role === ASSISTANT)) {
                     setShowLoadingMessage(false)
@@ -821,14 +838,14 @@ const Chat = () => {
                     ) : answer.role === 'assistant' ? (
                       <div className={styles.chatMessageGpt}>
                         {typeof answer.content === "string" && <Answer
-                          answer={{
-                            answer: answer.content,
-                            citations: parseCitationFromMessage(messages[index - 1]),
-                            generated_chart: parsePlotFromMessage(messages[index - 1]),
-                            message_id: answer.id,
-                            feedback: answer.feedback,
-                            exec_results: execResults
-                          }}
+                            answer={{
+                              answer: answer.content,
+                              citations: answer.citations || parseCitationFromMessage(messages[index - 1]) || [],
+                              generated_chart: parsePlotFromMessage(messages[index - 1]),
+                              message_id: answer.id,
+                              feedback: answer.feedback,
+                              exec_results: execResults
+                            }}
                           onCitationClicked={c => onShowCitation(c)}
                           onExectResultClicked={() => onShowExecResult(answerId)}
                         />}
@@ -991,7 +1008,7 @@ const Chat = () => {
                 className={styles.citationPanelHeaderContainer}
                 horizontalAlign="space-between"
                 verticalAlign="center">
-                <span aria-label="Citations" className={styles.citationPanelHeader}>
+                <span aria-label="Source Pages" className={styles.citationPanelHeader}>
                   Citations
                 </span>
                 <IconButton
@@ -1000,17 +1017,36 @@ const Chat = () => {
                   onClick={() => setIsCitationPanelOpen(false)}
                 />
               </Stack>
-              <h5
-                className={styles.citationPanelTitle}
-                tabIndex={0}
-                title={
-                  activeCitation.url && !activeCitation.url.includes('blob.core')
-                    ? activeCitation.url
-                    : activeCitation.title ?? ''
-                }
-                onClick={() => onViewSource(activeCitation)}>
-                {activeCitation.title}
-              </h5>
+            
+              {activeCitation.url && (
+                <div style={{ marginBottom: 8 }}>
+                  <a
+                    href={activeCitation.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={styles.citationPanelLink}
+                    style={{ wordBreak: 'break-all', display: 'block', marginBottom: 8 }}
+                  >
+                    Go to source
+                  </a>
+                  <img
+                    src={activeCitation.url}
+                    alt={activeCitation.title || "Citation screenshot"}
+                    style={{
+                       maxWidth: "100%",
+                      maxHeight: 600, // Increase this value as needed
+                      width: "auto",
+                      height: "auto",
+                      border: "1px solid #ccc",
+                      borderRadius: 4,
+                      display: "block",
+                      margin: "0 auto"
+                    }}
+                    onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                  />
+                </div>
+                
+              )}
               <div tabIndex={0}>
                 <ReactMarkdown
                   linkTarget="_blank"

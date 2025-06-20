@@ -224,3 +224,11 @@ sup {
   color: #0078d4;
   transform: scale(1.2);
 }
+
+/* ---------- Markdown table styling ---------- */
+.mdTable   { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
+.mdThead   { background: #115ea3; color: #fff; }
+.mdTh,
+.mdTd      { border: 1px solid #3a3a3a; padding: 4px 8px; text-align: left; }
+  /* zebra stripes */
+/* -------------------------------------------- */
