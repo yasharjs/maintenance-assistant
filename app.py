@@ -798,7 +798,7 @@ async def run_agent_on_conversation(conversation_messages) -> str:
     )
 
     # Ask agent to use tool to generate title
-    result = await agent.ainvoke("Summarize this conversation into a short title:\n" + conversation)
+    result = await agent.ainvoke("Summarize this conversation into a short title:\n" + conversation) # type: ignore
 
     return result["output"]
 
