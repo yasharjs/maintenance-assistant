@@ -1,7 +1,6 @@
 from langchain_community.vectorstores.azuresearch import AzureSearch
 from langchain_openai import AzureOpenAIEmbeddings
 from langchain_core.runnables import RunnableLambda, RunnablePassthrough
-from langchain_core.output_parsers import StrOutputParser
 from langchain_core.messages import HumanMessage, AIMessageChunk,SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
 from types import SimpleNamespace
@@ -10,11 +9,123 @@ import uuid
 from azure.storage.blob import BlobServiceClient, generate_container_sas, ContainerSasPermissions
 from azure.core.exceptions import ResourceExistsError
 from datetime import datetime, timedelta, timezone
-import json
 from langchain_openai import AzureChatOpenAI
 from langchain.memory import ConversationBufferMemory
 from langchain.chains   import LLMChain
+from azure.search.documents import SearchClient
+from azure.core.credentials import AzureKeyCredential
+from IPython.display import Markdown, display
+import re   
+from langchain.schema import Document 
+from langchain.chains import ConversationChain
+from langchain.memory import ConversationBufferMemory
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain.chains import LLMChain    
 
+toc="""
+| Pg# | Item / Revision | Description                           | Dwg / Revision |
+|-----|-----------------|---------------------------------------|----------------|
+|     |                 | Electrical Assemblies                 |                |
+| 5   | 5488099/3       | RS485 ENCLOSURE                       | 5488099/3      |
+| 7   | 2399471/3       | Electrical E-Stop Hardware Grp        | 5726144/0      |
+|     |                 | Hydraulic Section                     |                |
+| 9   | 2487799/1       | Split Flange Set                      | 2487767/0      |
+| 9   | 2487798/1       | Split Flange Set                      | 2487767/0      |
+| 9   | 2481966/2       | Split Flange Set                      | 2487767/0      |
+| 11  | 6380864/0       | Clamp Manifold Assembly               | 4493108/0      |
+| 13  | 6379905/0       | Injection Manifold Assembly           | 4917370/2      |
+| 16  | 5994314/1       | Stroke Manifold Assembly              | 4852822/1      |
+| 18  | 2487817/3       | Split Flange Set                      | 2487767/0      |
+| 20  | 3764548/1       | Hose Restraint Assembly               | 3765171/2      |
+| 22  | 2927241/1       | Split Flange Set                      | 2487767/0      |
+| 24  | 2900164/2       | Pressure Gauge Assembly               | 5143491/2      |
+| 26  | 2683677/3       | Directional Control Valve             | 3164733/0      |
+| 28  | 2577036/1       | Split Flange Set                      | 2487767/0      |
+| 30  | 5411714/0       | Booster Manifold Assembly             | 4847193/0      |
+|     |                 | Hydraulic Serviceable Items           |                |
+| 32  | 2601072/1       | Auto Accumulator Dump Valve           | 3213299/0      |
+| 34  | 2642077/1       | Active Valve Cover                    | 3176670/1      |
+| 36  | 3928979/0       | Cartridge Valve Cover                 | 3396410/0      |
+| 38  | 2601070/0       | Manual Accumulator Dump Valve         | 3394959/0      |
+| 40  | 2542629/0       | Cartridge Valve                       | 3176600/0      |
+| 40  | 2524317/0       | Cartridge Valve                       | 3176600/0      |
+| 42  | 2510956/2       | Directional Control Valve             | 3164733/0      |
+| 44  | 2506821/0       | Cartridge Valve Cover                 | 3396410/0      |
+| 46  | 2506793/0       | Cartridge Check Valve                 | 3201797/0      |
+| 48  | 2477748/3       | Directional Control Valve             | 3164733/0      |
+| 48  | 2477725/0       | Directional Control Valve             | 3164733/0      |
+| 50  | 2155092/0       | Valve, Double Solenoid                | 3465073/1      |
+| 52  | 746873/1        | Proportional Directional Valve        | 3427660/0      |
+| 54  | 746805/1        | Active Cartridge Valve                | 3176670/1      |
+| 56  | 3928985/0       | Cartridge Valve Cover                 | 3396410/0      |
+| 58  | 735571/0        | Active Cartridge Valve                | 3176670/1      |
+| 58  | 735572/0        | Active Cartridge Cover                | 3176670/1      |
+|     |                 | Pneumatic Section                     |                |
+| 60  | 5987802/4       | Clamp Air Services Group              | 5987803/3      |
+| 64  | 5885819/1       | Air Filter Regulator Assembly         | 5994998/1      |
+| 66  | 5611895/2       | Moving Platen Oil Retrieval           | 5439899/1      |
+| 69  | 5403319/8       | Vacuum Transfer Services Group        | 5407799/4      |
+|     |                 | Pneumatic Serviceable Items           |                |
+| 74  | 5172445         | Air Valve, 3 Way Poppet 1.5"          |                |
+| 74  | 5172439         | Air Valve, 3 Way Poppet 1"            |                |
+| 74  | 746607/0        | Pneumatic Valve- Numatics             | 3465073/1      |
+| 76  | 5172453/1       | Air Valve, 3 Way Poppet 1.5"          |                |
+| 76  | 717457/1        | Air Valve                             | 3463436/0      |
+|     |                 | Water Circuits                        |                |
+| 78  | 5341339/4       | Final Base Water Group                | 5345879/2      |
+| 79  | 5342556/2       | Base Water Group                      | 5345879/2      |
+| 83  | 5390381/6       | Mold Cooling Group                    | 5551848/2      |
+| 84  | 5390431/2       | Mold Cooling Hose Kit                 | 5551848/2      |
+| 87  | 5466558/1       | No Mold Cooling Manual Valves         | 5734422/0      |
+| 90  | 5591582/0       | Baumuller Motor Cooling Assy          | 5640818/0      |
+| 92  | 5744951/1       | Robot Cabinet Cooling Group           | 4979677/0      |
+|     |                 | Water Circuit Serviceable Item        |                |
+| 94  | 2026444/0       | Valve                                 | 3406239/0      |
+|     |                 | Safety Gates & Nameplates             |                |
+| 96  | 3022670/2       | Nameplates, Clamp                     | 3022150/4      |
+| 98  | 6461769/0       | Nameplate Group NA                    | 4610404/2      |
+| 102 | 4147028/2       | HyPET Robot Cab NP-UL English         | 4610453/0      |
+| 104 | 5314381/3       | Nameplates, Injection-NA Engli        | 5093006/6      |
+| 106 | 5332408/2       | Sliding Doors Assy OS                 | 5296146/6      |
+| 116 | 5332414/4       | Shutter Guard Assy OS                 | 5268456/5      |
+| 123 | 5358135/6       | Clamp End Gate Assembly               | 5391084/3      |
+| 130 | 5358141/4       | Robot End Gate Assembly               | 5383220/2      |
+| 138 | 5358182/1       | Door Rail Assy OS                     | 5268978/4      |
+|     |                 | Gate Assemblies                       |                |
+| 145 | 5367200/5       | Vacuum End Gate Assembly              | 5391239/2      |
+| 152 | 5398462/2       | Skirting Assembly                     | 5401392/1      |
+| 154 | 5499617/4       | Standard Gates Assy                   | 5272402/6      |
+| 156 | 5601541/3       | Stat. Platen Guards Assy              | 5610493/2      |
+| 161 | 5680617/3       | Robot Gate Assembly                   | 5392642/0      |
+| 163 | 5680618/5       | Conveyor End Gate Assembly            | 5386718/6      |
+| 173 | 6054848/0       | Discharge Guard Air Return Ass        | 6054973/0      |
+| 176 | 6201839/0       | Robot Hood Panel VE                   | 6165215/4      |
+| 182 | 6205500/0       | Robot Hood Door VE                    | 6168538/3      |
+| 187 | 6206679/0       | Robot Hood Door CE                    | 6156320/3      |
+| 194 | 6208219/0       | Robot Hood Panel CE                   | 6131752/3      |
+| 199 | 6210275/5       | Clamp Hood Assembly                   | 6199134/7      |
+| 209 | 6245953/2       | Shutter Guard CE Assy                 | 6245983/3      |
+| 218 | 6262190/6       | Dehumidification Enclosure Ass        | 6214454/1      |
+| 221 | 6269702/2       | IMA Hood Door Assy                    | 6182736/5      |
+| 226 | 4018482/9       | HyPET-HPP Gate Safety Kit             | 4686812/2      |
+|     |                 | Clamp Section                         |                |
+| 228 | 2328775/2       | Drop Bar Assembly                     | 4570677/0      |
+| 230 | 2679128/2       | Ejector Booster HYPET300-500          | 2679128/2      |
+| 232 | 2747262/4       | Safety Drop Bar Group                 | 4944048/1      |
+| 235 | 2906589/2       | Final Clamp Group HL300               | 2733185/2      |
+| 238 | 3880109/0       | Banana Magnet Assembly                | 3880109/0      |
+| 240 | 3907064/1       | Locating Ring Filler Assembly         | 5255938/0      |
+| 242 | 4095523/3       | Clamp Cyl. Seal Kit                   | 3890289/4      |
+| 246 | 5188688/0       | Walkway Clamp Assembly                | 4155759/0      |
+| 248 | 5319205/6       | Moving Platen Group                   | 5637992/2      |
+| 251 | 5357878/3       | Final Clamp Hydraulics                | 5478298/1      |
+| 256 | 5465661/1       | ASSY - Clamp IO Box (P9)              | 5465661/1      |
+| 257 | 5470022/2       | HMI Group                             | 5465736/1      |
+| 262 | 5512342/12      | Mold ID Hardware Group                | 5512674/0      |
+| 264 | 5543466/0       | Platen Hydr.Hardware BOM              | 5418562/0      |
+| 266 | 5591696/0       | Parts Drop Off Collector              | 5577619/0      |
+| 270 | 5639850/0       | Column Assy HyPET4.0 300              | 4104020/1      |
+"""
 llm = AzureChatOpenAI(
     openai_api_version="2024-05-01-preview",  # or your deployed version # type: ignore
     azure_deployment="gpt-4o",
@@ -33,7 +144,7 @@ router_prompt = ChatPromptTemplate.from_messages([
      "- pump setup, calibration, swash plate, pressure command, jumper settings, VT5041 amplifier, Rexroth pump setup\n"
      "- servo valve operation, Moog valves, spool position, pilot unlock valve, hydraulic troubleshooting, faults, alarms\n"
      "- voltages, PIN measurements, breakout box, system/extruder pumps, Husky G-Line, HyPET, Hylectric, Quadloc machines\n"
-     "- Mechanical drawings and part numbers"
+     "- Mechanical drawings, part numbers, technical blueprints, dimensions, CAD references"
      "\n"
      "Say `no` if the query is:\n"
      "- greetings, general conversation, personal questions, jokes\n"
@@ -48,6 +159,15 @@ router_chain = LLMChain(llm=llm, prompt=router_prompt)
 AZURE_STORAGE_ACCOUNT = "stdocumentra243626647348"
 AZURE_STORAGE_KEY = "J1qMHEQBce8UJEn5Le4uYrSZQJxeoe2Np/lg0G15pITaguQtQxw4Yt9xargTrc+hla2AgCQjjZM8+AStqA8hxw=="
 CONTAINER = "pages" 
+AZURE_SEARCH_ENDPOINT = "https://aisearchdocumentrag.search.windows.net"
+AZURE_SEARCH_KEY      = "ICtH96hEtsivtOz4ug0nP1hUfuw5sMfoCbHAP9ARnRAzSeDt7Z0m" 
+index_name: str = "pdfs"
+
+client = SearchClient(
+    endpoint=AZURE_SEARCH_ENDPOINT,
+    index_name=index_name,
+    credential=AzureKeyCredential(AZURE_SEARCH_KEY)
+)
 
 service = BlobServiceClient(
     f"https://{AZURE_STORAGE_ACCOUNT}.blob.core.windows.net",
@@ -103,16 +223,21 @@ vectorstore = AzureSearch(
     embedding_function = azure_embeddings,
     vector_search_dimensions = 1536, 
     text_key              = "page_content",
-    vector_field_name     = VECTOR_FIELD
+    vector_field_name     = VECTOR_FIELD,
+     search_type="hybrid", 
 )
 
 retriever = vectorstore.as_retriever(
     search_type="hybrid",
      k=6,
    )
+memory = ConversationBufferMemory(
+    return_messages=True,        # lets the LLM “see” role tags
+    memory_key="history",        # <-- matches the prompt placeholder we’ll use
+    input_key="question",        # name of the field that holds the new user turn
+)
 # keep only the N most recent user/assistant pairs
 memory = ConversationBufferMemory(return_messages=True)
-
 chat_history = memory.load_memory_variables({}).get("history", [])
 history_text = ""
 for m in chat_history:                     # m is a BaseMessage
@@ -130,16 +255,20 @@ def trim_and_dedupe(docs, max_chars: int = 1200):
             out.append(d)
     return out
 
+def _parse_page_numbers(raw: str) -> list[int]:
+    """Return sorted unique page ints extracted from any LLM text."""
+    return sorted({int(n) for n in re.findall(r"\d+", raw)})
 
 def _docs_to_citations(docs):
     """Return a list[dict] each with id/title/url/chunk so the Vue panel shows them."""
     citations = []
     for i, d in enumerate(docs):
+        blob = d.metadata.get("blob_name")
+        if not blob:                               # fallback → skip or tag
+            continue                               #   or:   blob = "unknown"
         citations.append({
-        
-            "title": d.metadata.get("source", d.metadata.get("file_name", f"Chunk {i+1}")),
-            "url": url_from_blob(d.metadata["blob_name"]),     # you already have this helper
-            
+            "title": d.metadata.get("source", f"Chunk {i+1}"),
+            "url":  url_from_blob(blob),
         })
     return citations
 
@@ -147,6 +276,7 @@ def _docs_to_citations(docs):
 def build_prompt(kwargs):
     ctx = kwargs["context"]
     question = kwargs["question"]
+    
 
     context_text = "\n".join(
 f"{t.page_content} [doc{i+1}]"
@@ -168,7 +298,7 @@ for i, t in enumerate(ctx["texts"])
             | Column A | Column B |
             |---------|---------|
             | 10 V    | OK      |"""
-            "keep all your answers to 250 tokens or less."
+            
     )
 
     return ChatPromptTemplate.from_messages([
@@ -182,36 +312,96 @@ def split_docs(docs):
     out = {"texts": [], "images": []}
     for d in docs:
         out["texts"].append(d)
-        if "blob_name" in d.metadata:
-            out["images"].append(url_from_blob(d.metadata["blob_name"]))
+        # if "blob_name" in d.metadata:
+        #     out["images"].append(url_from_blob(d.metadata["blob_name"]))
    
     return out
-    
-async def run_test_rag(user_query: str):
 
-    
- #Rewrite the query
-    query_rewrite_prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are a query optimizer for a maintenance assistant supporting Husky HyPET, Hylectric, and Quadloc machines."
-      "  Your task is to rewrite the user's query so it will help improve retrieval of maintenance documents related to:"
-       " - troubleshooting faults, alarms, error codes"
-       " - servo valves, Rexroth Master/Slave pumps, Moog breakout box measurements"
-        "- machine setup, calibration, signal checks, hydraulic systems"
-        "- mechanical drawings and part numbers"),
-        ("user", "{query}")
-])
+def to_lc_doc(raw: dict) -> Document:
+    """
+    Flatten an Azure Search record into the shape LangChain expects.
+    - Everything except 'content' becomes metadata
+    - Nested 'metadata' dicts are flattened too
+    """
+    meta = {k: v for k, v in raw.items() if k != "content"}
+
+    # Azure indexes often put custom fields under a nested 'metadata' object
+    if isinstance(meta.get("metadata"), dict):
+        meta.update(meta.pop("metadata"))
+
+    # Make sure keys your utilities rely on are present
+    meta.setdefault("source", meta.get("file_name", f"Chunk {meta.get('page', '-')}"))
+
+    return Document(
+        page_content=raw.get("content", "").strip(),
+        metadata=meta,
+    )
+
+
+async def run_test_rag(user_query: str):
+    global history_text                         # let build_prompt see the update
+    chat_history = memory.load_memory_variables({}).get("history", [])
+    history_text = ""
+    for m in chat_history:                      # m is a BaseMessage
+        role = "User" if m.type == "human" else "Assistant"
+        history_text += f"{role}: {m.content}\n"
+
+    # 1. Detect if it's a mechanical drawing query (lightweight keyword check)
+    drawing_keywords = ["drawing", "part number", "BOM", "blueprint", "revision", "dwg", "item", "description"]
+    is_drawing_query = any(kw in user_query.lower() for kw in drawing_keywords)
+
+    # 2. Choose query rewrite prompt based on type
+    if is_drawing_query:
+        query_rewrite_prompt = ChatPromptTemplate.from_messages([
+            ("system",
+            "You are optimizing a user query to help locate a specific mechanical drawing page from a large PDF.\n"
+            "The query may include drawing number, item number, BOM, or description.\n"
+            "Extract the most relevant keywords or identifiers clearly."),
+            ("user", "{query}")
+        ])
+    else:
+        query_rewrite_prompt = ChatPromptTemplate.from_messages([
+            ("system",
+            "You are a query optimizer for a maintenance assistant supporting Husky HyPET, Hylectric, and Quadloc machines.\n"
+            "Your task is to rewrite the user's query to improve retrieval for technical troubleshooting, calibration, faults, setup, and hydraulics."),
+            ("user", "{query}")
+        ])
+
+    # 3. Rewrite the query
     query_rewrite_chain = LLMChain(llm=llm, prompt=query_rewrite_prompt)
     rewritten_query = await query_rewrite_chain.apredict(query=user_query)
     print(f"Rewritten query: {rewritten_query}")
-   
-    # ── 1. Retrieve supporting documents ─────────────────────────────────────────
-    hits = trim_and_dedupe(
-    await retriever.aget_relevant_documents(rewritten_query)
+    hits = []
+    # 4. If drawing-related, predict page from ToC
+    if is_drawing_query:
+        page_lookup_prompt = ChatPromptTemplate.from_messages([
+            ("system",
+            "Given the table of contents and a query about mechanical drawings, return only the page number(s) relevant to the drawing.\n"
+            "If multiple are relevant, return comma-separated numbers only."),
+            ("human", "TOC:\n\n{toc}\n\nQuery:\n{query}")
+        ])
+        page_lookup_chain = LLMChain(llm=llm, prompt=page_lookup_prompt)
+        page_result = await page_lookup_chain.apredict(toc=toc, query= rewritten_query)
+        print(f"📄 Page prediction result: {page_result}")
+        if not page_result:
+            print("⚠️  No numeric pages detected; falling back to global search")
+        page_numbers = _parse_page_numbers(page_result) if is_drawing_query else []
+        toc_ids = [f"Husky_2_Mechanical_Drawing_Package-p{p}" for p in page_numbers]
+        for doc_id in toc_ids:
+            raw = client.get_document(key=doc_id)   # ➜ dict
+            hits.append(to_lc_doc(raw)) 
+    else:
+     hits = trim_and_dedupe(
+         await retriever.aget_relevant_documents(rewritten_query)
 )
+
+    # 5. Proceed with RAG retrieval
+  
+    citations = _docs_to_citations(hits)
+
+   
     
-    citations = _docs_to_citations(hits)  # → list[dict] tailor‑made for the UI
-    
-    # ── 4. Assemble and run chain ────────────────────────────────────────────────
+    # ──  Assemble and run chain ────────────────────────────────────────────────
     chain = (
         {
             "context": RunnableLambda(lambda _q: split_docs(hits)),
@@ -221,7 +411,7 @@ async def run_test_rag(user_query: str):
         | llm  # gpt-4o in streaming mode
     )
 
-    # ── 5. Stream response and collect answer text ───────────────────────────────
+    # ──  Stream response and collect answer text ───────────────────────────────
     answer_parts = []
 
     async for chunk in chain.astream(rewritten_query):
@@ -245,7 +435,7 @@ async def run_test_rag(user_query: str):
                 ]
             )
 
-    # ── 6. Final assistant chunk with full text + citations ─────────────────────
+    # ── Final assistant chunk with full text + citations ─────────────────────
     final_answer = "".join(answer_parts)
     memory.save_context(
      {"input": user_query},
