@@ -42,6 +42,7 @@ from langchain.agents.agent_types import AgentType
 from langchain_core.tools import tool
 from langchain.chains   import LLMChain
 from backend.rag.test_rag import run_test_rag
+from langchain.schema import HumanMessage, AIMessage
 
 # Defines a modular route group with access to static files for UI rendering
 bp = Blueprint("routes", __name__, static_folder="static", template_folder="static")
@@ -171,27 +172,22 @@ async def init_cosmosdb_client():
 from backend.rag.test_rag import router_chain, memory, llm
 MAX_PAIRS_FOR_ROUTER = 3       # tune between 2-4
 
-def build_router_input(history, latest_user_msg):
-    """Return a short string with the N most-recent pairs + latest user message."""
-    # keep last N pairs
-    recent_pairs = history[-MAX_PAIRS_FOR_ROUTER*2:]   # each pair = 2 msgs
+def build_router_input(chat_history: list):
     parts = []
-    for m in recent_pairs:
+    for m in chat_history:
         role = "User" if m.type == "human" else "Assistant"
         parts.append(f"{role}: {m.content}")
-    parts.append(f"User: {latest_user_msg}")           # current turn
     return "\n".join(parts)
 
-async def smart_run(user_query: str):
-    chat_history = memory.load_memory_variables({}).get("history", [])
-    history_snippet = build_router_input(chat_history, user_query)
+async def smart_run(chat_history: list, user_query: str):
     """Decides RAG or direct chat."""
-    router_reply = await router_chain.apredict(query=history_snippet)
+    chat_history_str = build_router_input(chat_history)
+    router_reply = await router_chain.apredict(query=chat_history_str)
     needs_rag = router_reply.strip().lower() == "yes"
     print(f"Router decision: {router_reply.strip()} → {'RAG' if needs_rag else 'Direct Chat'}")
 
     if needs_rag:
-        async for chunk in run_test_rag(user_query):
+        async for chunk in run_test_rag(chat_history, user_query):
             yield chunk
     else:
         msgs = []
@@ -229,25 +225,28 @@ async def smart_run(user_query: str):
         )
 
 async def stream_chat_request(request_body, request_headers):
-     """
-    Stream the assistant response *and* let the final chunk carry citations.
+    """Stream the assistant response *and* let the final chunk carry citations.
 
-    The front-end’s Chat.tsx simply splits the byte stream on newlines and
-    JSON-parses every line, so each `yield` must be one COMPLETE JSON object
-    on its own line (format_stream_response handles that for us).
+        The front-end’s Chat.tsx simply splits the byte stream on newlines and
+        JSON-parses every line, so each `yield` must be one COMPLETE JSON object
+        on its own line (format_stream_response handles that for us).
     """
 
     # 1 Pull the most-recent user message text
-     last_user_msg = next(
+    last_user_msg = next(
         (m["content"] for m in reversed(request_body["messages"]) if m["role"] == "user"),
         ""
     )
 
     # 2️ Any metadata you want to keep flowing through
-     history_md = request_body.get("history_metadata", {})
+    history_md = request_body.get("history_metadata", {})
+
+    # convert messages from request body to chathistory for langchain
+    messages = request_body.get("messages", [])
+    chat_history = convert_messages_to_chat_history(messages)
 
     # 3️ Pass it to the RAG async generator and forward each chunk
-     async for rag_chunk in smart_run(last_user_msg):
+    async for rag_chunk in smart_run(chat_history, last_user_msg):
         #   rag_chunk is already OpenAI-style.  `format_stream_response`
         #   adds request-/history-ids etc. and serialises to NDJSON.
         yield format_stream_response(
@@ -255,6 +254,21 @@ async def stream_chat_request(request_body, request_headers):
             history_md,
             rag_chunk.id                        # we set this in _wrap_chunk
         )
+
+def convert_messages_to_chat_history(messages: list):
+    # Step 1: Slice to get only recent messages (each pair = 2 messages)
+    recent_raw_msgs = messages[-(MAX_PAIRS_FOR_ROUTER * 2 + 1):]
+
+    # Step 2: Convert only recent messages to LangChain message objects
+    chat_history = []
+    for msg in recent_raw_msgs:
+        role = msg.get("role")
+        content = msg.get("content", "")
+        if role == "user":
+            chat_history.append(HumanMessage(content=content))
+        elif role == "assistant":
+            chat_history.append(AIMessage(content=content))
+    return chat_history
 
 # This function handles the core logic for processing the user's message.
 async def conversation_internal(request_body, request_headers):

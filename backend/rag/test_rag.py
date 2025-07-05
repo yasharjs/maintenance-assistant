@@ -18,7 +18,6 @@ from IPython.display import Markdown, display
 import re   
 from langchain.schema import Document 
 from langchain.chains import ConversationChain
-from langchain.memory import ConversationBufferMemory
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.chains import LLMChain    
 
@@ -237,12 +236,7 @@ memory = ConversationBufferMemory(
     input_key="question",        # name of the field that holds the new user turn
 )
 # keep only the N most recent user/assistant pairs
-memory = ConversationBufferMemory(return_messages=True)
-chat_history = memory.load_memory_variables({}).get("history", [])
-history_text = ""
-for m in chat_history:                     # m is a BaseMessage
-    role = "User" if m.type == "human" else "Assistant"
-    history_text += f"{role}: {m.content}\n"
+# memory = ConversationBufferMemory(return_messages=True)
     
 def trim_and_dedupe(docs, max_chars: int = 1200):
     """Remove duplicate text blocks and cap each chunk length."""
@@ -338,9 +332,8 @@ def to_lc_doc(raw: dict) -> Document:
     )
 
 
-async def run_test_rag(user_query: str):
+async def run_test_rag(chat_history: list, user_query: str):
     global history_text                         # let build_prompt see the update
-    chat_history = memory.load_memory_variables({}).get("history", [])
     history_text = ""
     for m in chat_history:                      # m is a BaseMessage
         role = "User" if m.type == "human" else "Assistant"
@@ -356,20 +349,23 @@ async def run_test_rag(user_query: str):
             ("system",
             "You are optimizing a user query to help locate a specific mechanical drawing page from a large PDF.\n"
             "The query may include drawing number, item number, BOM, or description.\n"
-            "Extract the most relevant keywords or identifiers clearly."),
+            "Extract the most relevant keywords or identifiers clearly."
+            "Here is the prior conversation:\n\n{history}\n\n"),
             ("user", "{query}")
         ])
     else:
         query_rewrite_prompt = ChatPromptTemplate.from_messages([
             ("system",
-            "You are a query optimizer for a maintenance assistant supporting Husky HyPET, Hylectric, and Quadloc machines.\n"
-            "Your task is to rewrite the user's query to improve retrieval for technical troubleshooting, calibration, faults, setup, and hydraulics."),
+            "You are a query rewriting assistant that specializes in improving retrieval for Retrieval-Augmented Generation (RAG) systems.\n"
+            "Your task is to take the original user query and rewrite it in a clearer, more keyword-rich way so that it matches relevant context stored in a vector database.\n"
+            "Rewrite the query using concise, formal language, and add any technical terms or concepts that improve semantic alignment. Do not change the user’s intent. Do not add unrelated information."
+            "Here is the prior conversation:\n\n{history}\n\n"),
             ("user", "{query}")
         ])
 
     # 3. Rewrite the query
     query_rewrite_chain = LLMChain(llm=llm, prompt=query_rewrite_prompt)
-    rewritten_query = await query_rewrite_chain.apredict(query=user_query)
+    rewritten_query = await query_rewrite_chain.apredict(query=user_query, history=history_text)
     print(f"Rewritten query: {rewritten_query}")
     hits = []
     # 4. If drawing-related, predict page from ToC
@@ -391,9 +387,7 @@ async def run_test_rag(user_query: str):
             raw = client.get_document(key=doc_id)   # ➜ dict
             hits.append(to_lc_doc(raw)) 
     else:
-     hits = trim_and_dedupe(
-         await retriever.aget_relevant_documents(rewritten_query)
-)
+        hits = await retriever.aget_relevant_documents(rewritten_query)
 
     # 5. Proceed with RAG retrieval
   
@@ -434,13 +428,6 @@ async def run_test_rag(user_query: str):
                     )
                 ]
             )
-
-    # ── Final assistant chunk with full text + citations ─────────────────────
-    final_answer = "".join(answer_parts)
-    memory.save_context(
-     {"input": user_query},
-    {"output": final_answer}
-)
 
     yield SimpleNamespace(
         id=str(uuid.uuid4()),
