@@ -1,7 +1,7 @@
 from langchain_community.vectorstores.azuresearch import AzureSearch
 from langchain_openai import AzureOpenAIEmbeddings
 from langchain_core.runnables import RunnableLambda, RunnablePassthrough
-from langchain_core.messages import HumanMessage, AIMessageChunk,SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
 from types import SimpleNamespace
 import time
@@ -10,15 +10,12 @@ from azure.storage.blob import BlobServiceClient, generate_container_sas, Contai
 from azure.core.exceptions import ResourceExistsError
 from datetime import datetime, timedelta, timezone
 from langchain_openai import AzureChatOpenAI
-from langchain.memory import ConversationBufferMemory
 from langchain.chains   import LLMChain
 from azure.search.documents import SearchClient
 from azure.core.credentials import AzureKeyCredential
-from IPython.display import Markdown, display
 import re   
 from langchain.schema import Document 
-from langchain.chains import ConversationChain
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.prompts import ChatPromptTemplate
 from langchain.chains import LLMChain    
 
 toc="""
@@ -230,24 +227,8 @@ retriever = vectorstore.as_retriever(
     search_type="hybrid",
      k=6,
    )
-memory = ConversationBufferMemory(
-    return_messages=True,        # lets the LLM “see” role tags
-    memory_key="history",        # <-- matches the prompt placeholder we’ll use
-    input_key="question",        # name of the field that holds the new user turn
-)
-# keep only the N most recent user/assistant pairs
-# memory = ConversationBufferMemory(return_messages=True)
+
     
-def trim_and_dedupe(docs, max_chars: int = 1200):
-    """Remove duplicate text blocks and cap each chunk length."""
-    seen, out = set(), []
-    for d in docs:
-        text = d.page_content[:max_chars].strip()
-        if text not in seen:
-            seen.add(text)
-            d.page_content = text              # keep the trimmed version
-            out.append(d)
-    return out
 
 def _parse_page_numbers(raw: str) -> list[int]:
     """Return sorted unique page ints extracted from any LLM text."""
@@ -258,10 +239,15 @@ def _docs_to_citations(docs):
     citations = []
     for i, d in enumerate(docs):
         blob = d.metadata.get("blob_name")
-        if not blob:                               # fallback → skip or tag
-            continue                               #   or:   blob = "unknown"
+        if not blob:
+            continue
+        page = d.metadata.get("page")
+        if page is not None:
+            title = f"Page {page}"
+        else:
+            title = d.metadata.get("source", f"Chunk {i+1}")
         citations.append({
-            "title": d.metadata.get("source", f"Chunk {i+1}"),
+            "title": title,
             "url":  url_from_blob(blob),
         })
     return citations

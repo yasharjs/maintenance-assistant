@@ -23,9 +23,10 @@ interface Props {
   answer: AskResponse
   onCitationClicked: (citedDocument: Citation) => void
   onExectResultClicked: (answerId: string) => void
+  onCitationListClicked?: (list: Citation[]) => void
 }
 
-export const Answer = ({ answer, onCitationClicked, onExectResultClicked }: Props) => {
+export const Answer = ({ answer, onCitationClicked, onExectResultClicked,onCitationListClicked }: Props) => {
   const initializeAnswerFeedback = (answer: AskResponse) => {
     if (answer.message_id == undefined) return undefined
     if (answer.feedback == undefined) return undefined
@@ -339,19 +340,19 @@ const mdComponents = { ...components, ...tableComponents }
                 <Stack horizontal horizontalAlign="start" verticalAlign="center">
                   <Text
                     className={styles.accordionTitle}
-                    onClick={toggleIsRefAccordionOpen}
-                    aria-label="Open references"
+                    onClick={() => onCitationListClicked?.(answer.citations)}
+                    aria-label="Open machine parts"
                     tabIndex={0}
                     role="button">
                     <span>
                       {answer.citations.length > 1
-                        ? answer.citations.length + ' references'
-                        : '1 reference'}
+                        ?  `${answer.citations.length} machine parts`
+                        : '1 machine part'}
                     </span>
                   </Text>
                   <FontIcon
                     className={styles.accordionIcon}
-                    onClick={handleChevronClick}
+                    onClick={() => onCitationListClicked?.(answer.citations)}
                     iconName={chevronIsExpanded ? 'ChevronDown' : 'ChevronRight'}
                   />
                 </Stack>

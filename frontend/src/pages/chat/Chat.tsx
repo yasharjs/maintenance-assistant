@@ -54,7 +54,14 @@ const Chat = () => {
   const chatMessageStreamEnd = useRef<HTMLDivElement | null>(null)
   const [isLoading, setIsLoading] = useState<boolean>(false)
   const [showLoadingMessage, setShowLoadingMessage] = useState<boolean>(false)
+  
   const [activeCitation, setActiveCitation] = useState<Citation>()
+  const [activeCitations, setActiveCitations] = useState<Citation[]>([])
+  const showCitationList = (list: Citation[]) => {
+  setActiveCitations(list)
+  setActiveCitation(undefined)   // ← clear single-item mode
+  setIsCitationPanelOpen(true)       // <- you already have this flag
+}
   const [isCitationPanelOpen, setIsCitationPanelOpen] = useState<boolean>(false)
   const [isIntentsPanelOpen, setIsIntentsPanelOpen] = useState<boolean>(false)
   const abortFuncs = useRef([] as AbortController[])
@@ -731,6 +738,7 @@ const Chat = () => {
 
   const onShowCitation = (citation: Citation) => {
     setActiveCitation(citation)
+    setActiveCitations([])         // ← clear list mode
     setIsCitationPanelOpen(true)
   }
 
@@ -815,7 +823,7 @@ const Chat = () => {
           </h2>
         </Stack>
       ) : (
-        <Stack horizontal className={styles.chatRoot}>
+        <Stack horizontal className={`${styles.chatRoot} ${isCitationPanelOpen ? styles.citationPanelOpen : ''}`}>
           <div className={styles.chatContainer}>
             {!messages || messages.length < 1 ? (
               <Stack className={styles.chatEmptyState}>
@@ -848,6 +856,7 @@ const Chat = () => {
                             }}
                           onCitationClicked={c => onShowCitation(c)}
                           onExectResultClicked={() => onShowExecResult(answerId)}
+                          onCitationListClicked={showCitationList}
                         />}
                       </div>
                     ) : answer.role === ERROR ? (
@@ -1000,7 +1009,7 @@ const Chat = () => {
             </Stack>
           </div>
           {/* Citation Panel */}
-          {messages && messages.length > 0 && isCitationPanelOpen && activeCitation && (
+          {messages && messages.length > 0 && isCitationPanelOpen && (activeCitations.length > 0 || activeCitation) && (
             <Stack.Item className={styles.citationPanel} tabIndex={0} role="tabpanel" aria-label="Citations Panel">
               <Stack
                 aria-label="Citations Panel Header Container"
@@ -1009,7 +1018,7 @@ const Chat = () => {
                 horizontalAlign="space-between"
                 verticalAlign="center">
                 <span aria-label="Source Pages" className={styles.citationPanelHeader}>
-                  Citations
+                  Machine Parts
                 </span>
                 <IconButton
                   iconProps={{ iconName: 'Cancel' }}
@@ -1017,45 +1026,50 @@ const Chat = () => {
                   onClick={() => setIsCitationPanelOpen(false)}
                 />
               </Stack>
+              {/* render list OR single item */}
+              <Stack className={styles.citationPanelBody} tokens={{ childrenGap: 16 }}>
+                {(activeCitations.length > 0 ? activeCitations : [activeCitation!]).map((c, idx) => (
+                  <div key={idx} style={{ marginBottom: 24 }}>
+                    {/* Show the page (from title) */}
+                    <div style={{ fontWeight: 'bold', marginBottom: 4 }}>
+                      {c.title}
+                    </div>
+                    {/* Show the image preview */}
+                    {c.url && (
+                      <a
+                        href={c.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={styles.citationPanelLink}
+                        style={{ wordBreak: 'break-all', display: 'block', marginBottom: 8 }}
+                      >
+                        <img
+                          src={c.url}
+                          alt={c.title || "Citation image"}
+                          style={{
+                            maxWidth: "100%",      // fills the panel horizontally, but doesn't overflow
+                            maxHeight: 700,        // increase this value as needed (e.g., 700, 900)
+                            width: "auto",         // let the browser scale width proportionally
+                            height: "auto",        // let the browser scale height proportionally
+                            border: "1px solid #ccc",
+                            borderRadius: 4,
+                            display: "block",
+                            marginBottom: 8
+                          }}
+                        />
+                        {/* Show the URL as text below the image */}
+                         <span style={{ fontSize: 14, color: "#0078d4", textDecoration: "underline", cursor: "pointer" }}>
+                            Click here
+                         </span>
+                      </a>
+                    )}
+                  </div>
+                ))}
+              </Stack>
+
+              
             
-              {activeCitation.url && (
-                <div style={{ marginBottom: 8 }}>
-                  <a
-                    href={activeCitation.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={styles.citationPanelLink}
-                    style={{ wordBreak: 'break-all', display: 'block', marginBottom: 8 }}
-                  >
-                    Go to source
-                  </a>
-                  <img
-                    src={activeCitation.url}
-                    alt={activeCitation.title || "Citation screenshot"}
-                    style={{
-                       maxWidth: "100%",
-                      maxHeight: 600, // Increase this value as needed
-                      width: "auto",
-                      height: "auto",
-                      border: "1px solid #ccc",
-                      borderRadius: 4,
-                      display: "block",
-                      margin: "0 auto"
-                    }}
-                    onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                  />
-                </div>
-                
-              )}
-              <div tabIndex={0}>
-                <ReactMarkdown
-                  linkTarget="_blank"
-                  className={styles.citationPanelContent}
-                  children={DOMPurify.sanitize(activeCitation.content, { ALLOWED_TAGS: XSSAllowTags })}
-                  remarkPlugins={[remarkGfm]}
-                  rehypePlugins={[rehypeRaw]}
-                />
-              </div>
+             
             </Stack.Item>
           )}
           {messages && messages.length > 0 && isIntentsPanelOpen && (

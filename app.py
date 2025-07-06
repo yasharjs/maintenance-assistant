@@ -169,7 +169,7 @@ async def init_cosmosdb_client():
 
     return cosmos_conversation_client
 
-from backend.rag.test_rag import router_chain, memory, llm
+from backend.rag.test_rag import router_chain, llm
 MAX_PAIRS_FOR_ROUTER = 3       # tune between 2-4
 
 def build_router_input(chat_history: list):
@@ -199,7 +199,6 @@ async def smart_run(chat_history: list, user_query: str):
         msgs.append({"role": "user", "content": user_query})
         async for chunk in llm.astream(msgs):
             if chunk.content:
-                final_content = chunk.content  # store last token part
                 yield SimpleNamespace(
                     id=str(uuid.uuid4()),
                     object="chat.completion.chunk",
@@ -218,11 +217,7 @@ async def smart_run(chat_history: list, user_query: str):
                     ]
                 )
 
-        # AFTER streaming is done, save to memory
-        memory.save_context(
-            {"input": user_query},
-            {"output": str(final_content) if not isinstance(final_content, str) else final_content}
-        )
+ 
 
 async def stream_chat_request(request_body, request_headers):
     """Stream the assistant response *and* let the final chunk carry citations.
