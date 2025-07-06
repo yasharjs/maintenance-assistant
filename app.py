@@ -169,7 +169,7 @@ async def init_cosmosdb_client():
 
     return cosmos_conversation_client
 
-from backend.rag.test_rag import router_chain, llm
+from backend.rag.test_rag import router_chain, memory, llm
 MAX_PAIRS_FOR_ROUTER = 3       # tune between 2-4
 
 def build_router_input(chat_history: list):
@@ -215,9 +215,8 @@ async def smart_run(chat_history: list, user_query: str):
                             )
                         )
                     ]
-                )
+            )
 
- 
 
 async def stream_chat_request(request_body, request_headers):
     """Stream the assistant response *and* let the final chunk carry citations.
