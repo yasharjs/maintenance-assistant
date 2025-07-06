@@ -4,7 +4,7 @@ from langchain_core.runnables import RunnableLambda, RunnablePassthrough
 from langchain_core.messages import HumanMessage, AIMessageChunk,SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
 from types import SimpleNamespace
-import time
+import time, json
 import uuid
 from azure.storage.blob import BlobServiceClient, generate_container_sas, ContainerSasPermissions
 from azure.core.exceptions import ResourceExistsError
@@ -229,25 +229,7 @@ vectorstore = AzureSearch(
 retriever = vectorstore.as_retriever(
     search_type="hybrid",
      k=6,
-   )
-memory = ConversationBufferMemory(
-    return_messages=True,        # lets the LLM “see” role tags
-    memory_key="history",        # <-- matches the prompt placeholder we’ll use
-    input_key="question",        # name of the field that holds the new user turn
 )
-# keep only the N most recent user/assistant pairs
-# memory = ConversationBufferMemory(return_messages=True)
-    
-def trim_and_dedupe(docs, max_chars: int = 1200):
-    """Remove duplicate text blocks and cap each chunk length."""
-    seen, out = set(), []
-    for d in docs:
-        text = d.page_content[:max_chars].strip()
-        if text not in seen:
-            seen.add(text)
-            d.page_content = text              # keep the trimmed version
-            out.append(d)
-    return out
 
 def _parse_page_numbers(raw: str) -> list[int]:
     """Return sorted unique page ints extracted from any LLM text."""
@@ -270,12 +252,12 @@ def _docs_to_citations(docs):
 def build_prompt(kwargs):
     ctx = kwargs["context"]
     question = kwargs["question"]
-    
+    is_drawing_query = kwargs.get("is_drawing_query", False)
 
     context_text = "\n".join(
-f"{t.page_content} [doc{i+1}]"
-for i, t in enumerate(ctx["texts"])
-)
+        f"{t.page_content} [doc{i+1}]"
+        for i, t in enumerate(ctx["texts"])
+    )
     prompt_header = (
         f"Conversation so far:\n{history_text}\n"
         f"---\nContext:\n{context_text}"
@@ -284,16 +266,26 @@ for i, t in enumerate(ctx["texts"])
     # for url in ctx["images"]:
     #     blocks.append({"type": "image_url", "image_url": {"url": url}})
     blocks.append({"type": "text", "text": f"\nQuestion: {question}"})
-    system_rules = (
+    if not is_drawing_query:
+        system_rules = (
         "You are an industrial maintenance assistant. "
         "• Put any tabular data inside a fenced Markdown table. "
         """ When listing rows & columns, output a **GitHub-Flavored Markdown table** using pipes (|) and dashes, no code fences.
             Example:
             | Column A | Column B |
             |---------|---------|
-            | 10 V    | OK      |"""
-            
-    )
+            | 10 V    | OK      |"""       
+        )
+    else:
+        system_rules =  (
+        "You are a technical assistant that answers questions based on mechanical drawings and Bill of Materials (BOM) data.\n"
+        "Use the provided context (including component descriptions, drawing references, and part numbers) to give clear and accurate responses.\n"
+        "- Tell the user: \"You can view the corresponding drawings by clicking the mechanical drawing link below.\"\n"
+        "- End with: \"Feel free to ask any follow-up questions if you need more details or clarification.\"\n"
+        "- Summarize where the user can find relevant drawings or BOM entries (based on the context).\n"
+        )
+        for url in ctx["images"]:
+            blocks.append({"type": "image_url", "image_url": {"url": url}})
 
     return ChatPromptTemplate.from_messages([
         SystemMessage(content=system_rules),
@@ -313,18 +305,26 @@ def split_docs(docs):
 
 def to_lc_doc(raw: dict) -> Document:
     """
-    Flatten an Azure Search record into the shape LangChain expects.
-    - Everything except 'content' becomes metadata
-    - Nested 'metadata' dicts are flattened too
+    Convert a raw Azure AI Search record to LangChain Document.
+    - Flattens nested stringified 'metadata'
+    - Drops unused or vector fields
     """
-    meta = {k: v for k, v in raw.items() if k != "content"}
+    meta = {}
 
-    # Azure indexes often put custom fields under a nested 'metadata' object
-    if isinstance(meta.get("metadata"), dict):
-        meta.update(meta.pop("metadata"))
+    # Start by parsing stringified JSON metadata if present
+    if "metadata" in raw and isinstance(raw["metadata"], str):
+        try:
+            meta.update(json.loads(raw["metadata"]))
+        except json.JSONDecodeError:
+            pass
 
-    # Make sure keys your utilities rely on are present
-    meta.setdefault("source", meta.get("file_name", f"Chunk {meta.get('page', '-')}"))
+    # Include top-level useful fields
+    for k in ("id", "blob_name"):
+        if k in raw:
+            meta[k] = raw[k]
+
+    # Set default source if not already present
+    meta.setdefault("source", meta.get("blob_name", f"Chunk {meta.get('page', '-')}" ))
 
     return Document(
         page_content=raw.get("content", "").strip(),
@@ -344,36 +344,42 @@ async def run_test_rag(chat_history: list, user_query: str):
     is_drawing_query = any(kw in user_query.lower() for kw in drawing_keywords)
 
     # 2. Choose query rewrite prompt based on type
-    if is_drawing_query:
-        query_rewrite_prompt = ChatPromptTemplate.from_messages([
-            ("system",
-            "You are optimizing a user query to help locate a specific mechanical drawing page from a large PDF.\n"
-            "The query may include drawing number, item number, BOM, or description.\n"
-            "Extract the most relevant keywords or identifiers clearly."
-            "Here is the prior conversation:\n\n{history}\n\n"),
-            ("user", "{query}")
-        ])
-    else:
-        query_rewrite_prompt = ChatPromptTemplate.from_messages([
-            ("system",
-            "You are a query rewriting assistant that specializes in improving retrieval for Retrieval-Augmented Generation (RAG) systems.\n"
-            "Your task is to take the original user query and rewrite it in a clearer, more keyword-rich way so that it matches relevant context stored in a vector database.\n"
-            "Rewrite the query using concise, formal language, and add any technical terms or concepts that improve semantic alignment. Do not change the user’s intent. Do not add unrelated information."
-            "Here is the prior conversation:\n\n{history}\n\n"),
-            ("user", "{query}")
-        ])
+    query_rewrite_prompt = ChatPromptTemplate.from_messages([
+        ("system",
+        "You are a query rewriting assistant that specializes in improving retrieval for Retrieval-Augmented Generation (RAG) systems.\n"
+        "Your task is to take the original user query and rewrite it in a clearer, more keyword-rich way so that it matches relevant context stored in a vector database.\n"
+        "Rewrite the query using concise, formal language, and add any technical terms or concepts that improve semantic alignment. Do not change the user’s intent. Do not add unrelated information."
+        "Here is the prior conversation:\n\n{history}\n\n"),
+        ("user", "{query}")
+    ])
 
     # 3. Rewrite the query
     query_rewrite_chain = LLMChain(llm=llm, prompt=query_rewrite_prompt)
     rewritten_query = await query_rewrite_chain.apredict(query=user_query, history=history_text)
+
     print(f"Rewritten query: {rewritten_query}")
     hits = []
     # 4. If drawing-related, predict page from ToC
     if is_drawing_query:
         page_lookup_prompt = ChatPromptTemplate.from_messages([
             ("system",
-            "Given the table of contents and a query about mechanical drawings, return only the page number(s) relevant to the drawing.\n"
-            "If multiple are relevant, return comma-separated numbers only."),
+           "You are given a table of contents and a user query about mechanical drawings.\n"
+            "The table of contents is a list of BOM entries, each with four columns:\n"
+            "1. Page Number (leftmost column — this is the BOM start page)\n"
+            "2. Part Number\n"
+            "3. Description\n"
+            "4. Drawing Number (not a page number)\n"
+            "\n"
+            "Your task is to:\n"
+            "1. Find the **first** BOM entry whose description matches the user query.\n"
+            "2. Return all **contiguous page numbers** starting from that entry's BOM page (first column),\n"
+            "   up to but **not including** the BOM page of the next entry in the table.\n"
+            "\n"
+            "Only return a **comma-separated list of page numbers**.\n"
+            "Do NOT include any drawing numbers or part numbers.\n"
+            "Do NOT include multiple matching entries — only the **first match**.\n"
+            "Do NOT guess or invent page numbers.\n"
+            "Use only the page numbers found in the first column of the table.\n"),
             ("human", "TOC:\n\n{toc}\n\nQuery:\n{query}")
         ])
         page_lookup_chain = LLMChain(llm=llm, prompt=page_lookup_prompt)
@@ -386,12 +392,13 @@ async def run_test_rag(chat_history: list, user_query: str):
         for doc_id in toc_ids:
             raw = client.get_document(key=doc_id)   # ➜ dict
             hits.append(to_lc_doc(raw)) 
+        citations = _docs_to_citations(hits)
     else:
         hits = await retriever.aget_relevant_documents(rewritten_query)
 
     # 5. Proceed with RAG retrieval
   
-    citations = _docs_to_citations(hits)
+    
 
    
     
@@ -400,6 +407,7 @@ async def run_test_rag(chat_history: list, user_query: str):
         {
             "context": RunnableLambda(lambda _q: split_docs(hits)),
             "question": RunnablePassthrough(),
+            "is_drawing_query": RunnableLambda(lambda _q: is_drawing_query),
         }
         | RunnableLambda(build_prompt)
         | llm  # gpt-4o in streaming mode
