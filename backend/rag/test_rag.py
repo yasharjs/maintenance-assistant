@@ -127,7 +127,7 @@ llm = AzureChatOpenAI(
     azure_deployment="gpt-4o",
     azure_endpoint="https://conta-m9prji51-eastus2.services.ai.azure.com",
     openai_api_key="9RSNCLiFqvGuUVCxVF1CsmDTLNBkHpX1P1jfMsxGMxqR2ES2wCy8JQQJ99BDACHYHv6XJ3w3AAAAACOGSc3o", # type: ignore
-    temperature=0,
+    temperature=0.0,
     streaming=True,  # enable streaming
 )
 router_prompt = ChatPromptTemplate.from_messages([
@@ -192,8 +192,7 @@ def url_from_blob(blob_name: str) -> str:
         f"{CONTAINER}/{blob_name}?{CONTAINER_SAS}"
     )
 
-AZURE_SEARCH_ENDPOINT = "https://aisearchdocumentrag.search.windows.net"
-AZURE_SEARCH_KEY      = "ICtH96hEtsivtOz4ug0nP1hUfuw5sMfoCbHAP9ARnRAzSeDt7Z0m"  # or paste the key here
+
 INDEX_NAME            = "pages"                      # all lower-case
 EMBED_DIM             = 1536  
 VECTOR_FIELD    = "content_vector"
@@ -220,12 +219,12 @@ vectorstore = AzureSearch(
     vector_search_dimensions = 1536, 
     text_key              = "page_content",
     vector_field_name     = VECTOR_FIELD,
-     search_type="hybrid", 
 )
 
 retriever = vectorstore.as_retriever(
     search_type="hybrid",
-     k=6,
+    k=10,              # was 6
+  
 )
 
 def _parse_page_numbers(raw: str) -> list[int]:
@@ -250,12 +249,12 @@ def _docs_to_citations(docs):
         })
     return citations
 
-# ── 3. Build multimodal prompt ───────────────────────────────────────────────
+# ── 3. Build multimodal prompt ───────────────────4────────────────────────────
 def build_prompt(kwargs):
     ctx = kwargs["context"]
     question = kwargs["question"]
     is_drawing_query = kwargs.get("is_drawing_query", False)
-
+    # Joins the page content of each document with a reference tag [doc#]
     context_text = "\n".join(
         f"{t.page_content} [doc{i+1}]"
         for i, t in enumerate(ctx["texts"])
@@ -265,22 +264,32 @@ def build_prompt(kwargs):
         f"---\nContext:\n{context_text}"
     )
     blocks = [{"type": "text", "text": prompt_header}]
-    # for url in ctx["images"]:
-    #     blocks.append({"type": "image_url", "image_url": {"url": url}})
     blocks.append({"type": "text", "text": f"\nQuestion: {question}"})
+    
     if not is_drawing_query:
         system_rules = (
         "You are an industrial maintenance assistant. "
         "• Put any tabular data inside a fenced Markdown table. "
+        "If any required value is missing from Context, answer: 'I do not have that information.'"
         """ When listing rows & columns, output a **GitHub-Flavored Markdown table** using pipes (|) and dashes, no code fences.
+        When creating tables, copy each cell exactly as shown in Context (no re-ordering, no summarising).
+
             Example:
             | Column A | Column B |
             |---------|---------|
-            | 10 V    | OK      |"""       
+            | 10 V    | OK      |
+            
+        keep answer to less than 1000 tokens
+            
+            """       
         )
+        # Passing images to LLM for non mechanical drawing documents
+        # for url in ctx["images"]:
+        #     blocks.append({"type": "image_url", "image_url": {"url": url}})
     else:
         system_rules =  (
         "You are a technical assistant that answers questions based on mechanical drawings and Bill of Materials (BOM) data.\n"
+        "If any required value is missing from Context, answer: 'I do not have that information.'"
         "Use the provided context (including component descriptions, drawing references, and part numbers) to give clear and accurate responses.\n"
         "- Tell the user: \"You can view the corresponding drawings by clicking the mechanical drawing link below.\"\n"
         "- End with: \"Feel free to ask any follow-up questions if you need more details or clarification.\"\n"
@@ -300,8 +309,8 @@ def split_docs(docs):
     out = {"texts": [], "images": []}
     for d in docs:
         out["texts"].append(d)
-        # if "blob_name" in d.metadata:
-        #     out["images"].append(url_from_blob(d.metadata["blob_name"]))
+        if "blob_name" in d.metadata:
+            out["images"].append(url_from_blob(d.metadata["blob_name"]))
    
     return out
 
@@ -344,6 +353,7 @@ async def run_test_rag(chat_history: list, user_query: str):
     # 1. Detect if it's a mechanical drawing query (lightweight keyword check)
     drawing_keywords = ["drawing", "part number", "BOM", "blueprint", "revision", "dwg", "item", "description"]
     is_drawing_query = any(kw in user_query.lower() for kw in drawing_keywords)
+    print(f"DRAWING QUERY BOOLEAN: {is_drawing_query}")
 
     # 2. Choose query rewrite prompt based on type
     query_rewrite_prompt = ChatPromptTemplate.from_messages([
@@ -377,7 +387,8 @@ async def run_test_rag(chat_history: list, user_query: str):
             "2. Return all **contiguous page numbers** starting from that entry's BOM page (first column),\n"
             "   up to but **not including** the BOM page of the next entry in the table.\n"
             "\n"
-            "Only return a **comma-separated list of page numbers**.\n"
+            "If you can NOT find a matching entry, return an empty string.\n"
+            "Only return a **comma-separated list of page numbers NO WORDS, PAGE NUMBERS ONLY**.\n"
             "Do NOT include any drawing numbers or part numbers.\n"
             "Do NOT include multiple matching entries — only the **first match**.\n"
             "Do NOT guess or invent page numbers.\n"
@@ -387,9 +398,7 @@ async def run_test_rag(chat_history: list, user_query: str):
         page_lookup_chain = LLMChain(llm=llm, prompt=page_lookup_prompt)
         page_result = await page_lookup_chain.apredict(toc=toc, query= rewritten_query)
         print(f"📄 Page prediction result: {page_result}")
-        if not page_result:
-            print("⚠️  No numeric pages detected; falling back to global search")
-        page_numbers = _parse_page_numbers(page_result) if is_drawing_query else []
+        page_numbers = _parse_page_numbers(page_result) 
         toc_ids = [f"Husky_2_Mechanical_Drawing_Package-p{p}" for p in page_numbers]
         for doc_id in toc_ids:
             raw = client.get_document(key=doc_id)   # ➜ dict
@@ -397,13 +406,8 @@ async def run_test_rag(chat_history: list, user_query: str):
         citations = _docs_to_citations(hits)
     else:
         hits = await retriever.aget_relevant_documents(rewritten_query)
+        citations = ""
 
-    # 5. Proceed with RAG retrieval
-  
-    
-
-   
-    
     # ──  Assemble and run chain ────────────────────────────────────────────────
     chain = (
         {
@@ -416,12 +420,10 @@ async def run_test_rag(chat_history: list, user_query: str):
     )
 
     # ──  Stream response and collect answer text ───────────────────────────────
-    answer_parts = []
 
     async for chunk in chain.astream(rewritten_query):
         token = chunk.content
         if token:
-            answer_parts.append(token)
             yield SimpleNamespace(
                 id=str(uuid.uuid4()),
                 object="chat.completion.chunk",

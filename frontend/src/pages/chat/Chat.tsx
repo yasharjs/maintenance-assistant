@@ -1031,7 +1031,7 @@ const Chat = () => {
                 {(activeCitations.length > 0 ? activeCitations : [activeCitation!]).map((c, idx) => (
                   <div key={idx} style={{ marginBottom: 24 }}>
                     {/* Show the page (from title) */}
-                    <div style={{ fontWeight: 'bold', marginBottom: 4 }}>
+                    <div style={{ fontWeight: 'bold', marginBottom: 4, fontSize: 18 }}>
                       {c.title}
                     </div>
                     {/* Show the image preview */}
@@ -1040,9 +1040,11 @@ const Chat = () => {
                         href={c.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className={styles.citationPanelLink}
                         style={{ wordBreak: 'break-all', display: 'block', marginBottom: 8 }}
                       >
+                        <span style={{ fontSize: 14, color: "#0078d4", textDecoration: "underline", cursor: "pointer" , marginBottom:30 }}>
+                            Click here
+                        </span>
                         <img
                           src={c.url}
                           alt={c.title || "Citation image"}
@@ -1057,10 +1059,6 @@ const Chat = () => {
                             marginBottom: 8
                           }}
                         />
-                        {/* Show the URL as text below the image */}
-                         <span style={{ fontSize: 14, color: "#0078d4", textDecoration: "underline", cursor: "pointer" }}>
-                            Click here
-                         </span>
                       </a>
                     )}
                   </div>
