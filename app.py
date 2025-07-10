@@ -169,7 +169,7 @@ async def init_cosmosdb_client():
 
     return cosmos_conversation_client
 
-from backend.rag.test_rag import router_chain, llm
+from backend.rag.test_rag import hybrid_router, llm, rewrite_query
 MAX_PAIRS_FOR_ROUTER = 3       # tune between 2-4
 
 def build_router_input(chat_history: list):
@@ -182,12 +182,13 @@ def build_router_input(chat_history: list):
 async def smart_run(chat_history: list, user_query: str):
     """Decides RAG or direct chat."""
     chat_history_str = build_router_input(chat_history)
-    router_reply = await router_chain.apredict(query=chat_history_str)
-    needs_rag = router_reply.strip().lower() == "yes"
-    print(f"Router decision: {router_reply.strip()} → {'RAG' if needs_rag else 'Direct Chat'}")
+    rewritten_query = await rewrite_query(user_query, chat_history_str)
+    print(f"[REWRITE] {rewritten_query}")
+    route = hybrid_router(rewritten_query, chat_history_str)
+    print(f"[ROUTER] Decided route → {route}")
 
-    if needs_rag:
-        async for chunk in run_test_rag(chat_history, user_query):
+    if route in ["mechanical_drawing", "troubleshooting"]:
+        async for chunk in run_test_rag(chat_history, rewritten_query, forced_route=route):
             yield chunk
     else:
         msgs = []

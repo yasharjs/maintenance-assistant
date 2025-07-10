@@ -17,6 +17,7 @@ import re
 from langchain.schema import Document 
 from langchain_core.prompts import ChatPromptTemplate
 from langchain.chains import LLMChain    
+from langchain.utils.math import cosine_similarity
 
 toc="""
 | Pg# | Item / Revision | Description                           | Dwg / Revision |
@@ -129,28 +130,40 @@ llm = AzureChatOpenAI(
     openai_api_key="9RSNCLiFqvGuUVCxVF1CsmDTLNBkHpX1P1jfMsxGMxqR2ES2wCy8JQQJ99BDACHYHv6XJ3w3AAAAACOGSc3o", # type: ignore
     temperature=0.0,
     streaming=True,  # enable streaming
+    max_tokens=1000
 )
-router_prompt = ChatPromptTemplate.from_messages([
+
+
+
+multi_route_prompt = ChatPromptTemplate.from_messages([
     ("system",
-     "You are a classifier. Decide if the user query needs to search the uploaded maintenance documents.\n"
-     "Answer ONLY `yes` or `no`.\n"
-     "Do not explain. Do not include any other words.\n"
-     "\n"
-     "Say `yes` if the query asks about:\n"
-     "- pump setup, calibration, swash plate, pressure command, jumper settings, VT5041 amplifier, Rexroth pump setup\n"
-     "- servo valve operation, Moog valves, spool position, pilot unlock valve, hydraulic troubleshooting, faults, alarms\n"
-     "- voltages, PIN measurements, breakout box, system/extruder pumps, Husky G-Line, HyPET, Hylectric, Quadloc machines\n"
-     "- Mechanical drawings, part numbers, technical blueprints, dimensions, CAD references"
-     "\n"
-     "Say `no` if the query is:\n"
-     "- greetings, general conversation, personal questions, jokes\n"
-     "- not about equipment setup, troubleshooting, hydraulic systems, or machine faults\n"
-     "\n"
-     "You must output ONLY one word: `yes` or `no`."
-    ),
-    ("user", "{query}")
+     "You are a routing assistant. Choose ONE category for the user’s intent:\n"
+     "- `mechanical_drawing`: BOM pages, CAD, part numbers, revisions, blueprints\n"
+     "- `troubleshooting`: faults, alarms, pumps, servo valves, sensors, wiring\n"
+     "- `general`: greetings or anything not covered above\n"
+     "Respond with ONLY: mechanical_drawing, troubleshooting, or general."),
+    ("human", "History:\n{history}\n\nUser Question:\n{query}")
 ])
-router_chain = LLMChain(llm=llm, prompt=router_prompt)
+route_classifier_chain = LLMChain(llm=llm, prompt=multi_route_prompt)
+
+SIMILARITY_THRESHOLD = 0.65   # keep tuning as you wish
+
+def hybrid_router(user_query: str, chat_history_str: str = "") -> str:
+    query_embedding = azure_embeddings.embed_query(user_query)
+    similarities    = cosine_similarity([query_embedding], route_embeddings)[0]
+    best_index      = int(similarities.argmax())
+    best_score      = similarities[best_index]
+
+    if best_score >= SIMILARITY_THRESHOLD:
+        return route_keys[best_index]   
+
+    # ── NEW: fallback to 3-class LLM classifier ────────────────────────────
+    llm_route = route_classifier_chain.run(history=chat_history_str, query=user_query)
+    llm_route = llm_route.strip().lower()
+    if llm_route in route_keys:         # sanity-check
+        return llm_route
+    return "general"  
+
 
 AZURE_STORAGE_ACCOUNT = "stdocumentra243626647348"
 AZURE_STORAGE_KEY = "J1qMHEQBce8UJEn5Le4uYrSZQJxeoe2Np/lg0G15pITaguQtQxw4Yt9xargTrc+hla2AgCQjjZM8+AStqA8hxw=="
@@ -209,6 +222,23 @@ azure_embeddings = AzureOpenAIEmbeddings(
     openai_api_version   = AZURE_OPENAI_API_VERSION, # type: ignore
     api_key              = AZURE_OPENAI_API_KEY,
 )
+
+routing_descriptions = {
+    "mechanical_drawing": "For technical questions about part numbers, mechanical drawings, CAD references, or BOM entries.",
+    "troubleshooting": "For hydraulic faults, alarm codes, servo valves, wiring, pumps, and VT5041 amplifier issues.",
+    "general": "For greetings, non-technical questions, or general support."
+}
+
+# Prepare text and keys
+route_texts = list(routing_descriptions.values())
+route_keys = list(routing_descriptions.keys())
+
+# Prepare text and keys
+route_texts = list(routing_descriptions.values())
+route_keys = list(routing_descriptions.keys())
+
+# One-time embedding of route descriptions
+route_embeddings = azure_embeddings.embed_documents(route_texts)
 
 index_name: str = "pdfs"
 vectorstore = AzureSearch(
@@ -270,7 +300,6 @@ def build_prompt(kwargs):
         system_rules = (
         "You are an industrial maintenance assistant. "
         "• Put any tabular data inside a fenced Markdown table. "
-        "If any required value is missing from Context, answer: 'I do not have that information.'"
         """ When listing rows & columns, output a **GitHub-Flavored Markdown table** using pipes (|) and dashes, no code fences.
         When creating tables, copy each cell exactly as shown in Context (no re-ordering, no summarising).
 
@@ -278,8 +307,6 @@ def build_prompt(kwargs):
             | Column A | Column B |
             |---------|---------|
             | 10 V    | OK      |
-            
-        keep answer to less than 1000 tokens
             
             """       
         )
@@ -342,8 +369,38 @@ def to_lc_doc(raw: dict) -> Document:
         metadata=meta,
     )
 
+# ── QUERY-REWRITE HELPER ────────────────────────────────────────────────────
+query_rewrite_prompt = ChatPromptTemplate.from_messages([
+    # ---- SYSTEM ---------------------------------------------------
+    ("system",
+     "You are a **query-rewriter**.  You never answer questions.\n"
+     "GOAL → Produce ONE LINE (≤25 words) that is an optimized, standalone search query.\n"
+     "HOW →\n"
+     "• Use the CURRENT_QUESTION plus any missing subject words from RECENT_HISTORY.\n"
+     "• Keep all technical terms verbatim (± Vdc, Pin 3, enable signal, etc.).\n"
+     "• Do NOT add analogies, definitions, or explanations.\n"
+     "• Do NOT answer the question.\n"
+     "• Return *only* the rewritten query text, no punctuation before/after, no extra lines.\n"
+    ),
+    # ---- FEW-SHOT EXAMPLES ----------------------------------------
+    # ❶ follow-up without subject
+    ("human", "RECENT_HISTORY:\nUser: What is the enable signal voltage range?\nAssistant: …\n\nCURRENT_QUESTION:\nWhy is it important?"),
+    ("assistant", "importance of enable signal voltage range Moog servo valve breakout box"),
+    # ❷ “explain like 5” request
+    ("human", "RECENT_HISTORY:\nUser: How does a servo valve control flow?\nAssistant: …\n\nCURRENT_QUESTION:\nExplain it like I'm 5"),
+    ("assistant", "servo valve flow control principle electrohydraulic mechanism explanation"),
+    # ---- REAL-TIME SLOT -------------------------------------------
+    ("human",
+     "RECENT_HISTORY:\n{history}\n\nCURRENT_QUESTION:\n{query}")
+])
+query_rewrite_chain = LLMChain(llm=llm, prompt=query_rewrite_prompt)
 
-async def run_test_rag(chat_history: list, user_query: str):
+async def rewrite_query(user_query: str, history: str) -> str:
+    """Return an LLM-rewritten version of `user_query`."""
+    return await query_rewrite_chain.apredict(query=user_query, history=history)
+
+
+async def run_test_rag(chat_history: list, user_query: str, forced_route: str | None = None):
     global history_text                         # let build_prompt see the update
     history_text = ""
     for m in chat_history:                      # m is a BaseMessage
@@ -351,25 +408,10 @@ async def run_test_rag(chat_history: list, user_query: str):
         history_text += f"{role}: {m.content}\n"
 
     # 1. Detect if it's a mechanical drawing query (lightweight keyword check)
-    drawing_keywords = ["drawing", "part number", "BOM", "blueprint", "revision", "dwg", "item", "description"]
-    is_drawing_query = any(kw in user_query.lower() for kw in drawing_keywords)
+    route = forced_route if forced_route else hybrid_router(user_query)
+    is_drawing_query = route == "mechanical_drawing"
     print(f"DRAWING QUERY BOOLEAN: {is_drawing_query}")
 
-    # 2. Choose query rewrite prompt based on type
-    query_rewrite_prompt = ChatPromptTemplate.from_messages([
-        ("system",
-        "You are a query rewriting assistant that specializes in improving retrieval for Retrieval-Augmented Generation (RAG) systems.\n"
-        "Your task is to take the original user query and rewrite it in a clearer, more keyword-rich way so that it matches relevant context stored in a vector database.\n"
-        "Rewrite the query using concise, formal language, and add any technical terms or concepts that improve semantic alignment. Do not change the user’s intent. Do not add unrelated information."
-        "Here is the prior conversation:\n\n{history}\n\n"),
-        ("user", "{query}")
-    ])
-
-    # 3. Rewrite the query
-    query_rewrite_chain = LLMChain(llm=llm, prompt=query_rewrite_prompt)
-    rewritten_query = await query_rewrite_chain.apredict(query=user_query, history=history_text)
-
-    print(f"Rewritten query: {rewritten_query}")
     hits = []
     # 4. If drawing-related, predict page from ToC
     if is_drawing_query:
@@ -396,7 +438,7 @@ async def run_test_rag(chat_history: list, user_query: str):
             ("human", "TOC:\n\n{toc}\n\nQuery:\n{query}")
         ])
         page_lookup_chain = LLMChain(llm=llm, prompt=page_lookup_prompt)
-        page_result = await page_lookup_chain.apredict(toc=toc, query= rewritten_query)
+        page_result = await page_lookup_chain.apredict(toc=toc, query= user_query)
         print(f"📄 Page prediction result: {page_result}")
         page_numbers = _parse_page_numbers(page_result) 
         toc_ids = [f"Husky_2_Mechanical_Drawing_Package-p{p}" for p in page_numbers]
@@ -405,7 +447,7 @@ async def run_test_rag(chat_history: list, user_query: str):
             hits.append(to_lc_doc(raw)) 
         citations = _docs_to_citations(hits)
     else:
-        hits = await retriever.aget_relevant_documents(rewritten_query)
+        hits = await retriever.aget_relevant_documents(user_query)
         citations = ""
 
     # ──  Assemble and run chain ────────────────────────────────────────────────
@@ -421,7 +463,7 @@ async def run_test_rag(chat_history: list, user_query: str):
 
     # ──  Stream response and collect answer text ───────────────────────────────
 
-    async for chunk in chain.astream(rewritten_query):
+    async for chunk in chain.astream(user_query):
         token = chunk.content
         if token:
             yield SimpleNamespace(
