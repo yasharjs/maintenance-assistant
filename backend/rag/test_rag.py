@@ -233,10 +233,6 @@ routing_descriptions = {
 route_texts = list(routing_descriptions.values())
 route_keys = list(routing_descriptions.keys())
 
-# Prepare text and keys
-route_texts = list(routing_descriptions.values())
-route_keys = list(routing_descriptions.keys())
-
 # One-time embedding of route descriptions
 route_embeddings = azure_embeddings.embed_documents(route_texts)
 
@@ -410,6 +406,26 @@ query_rewrite_prompt = ChatPromptTemplate.from_messages([
     ("human",
      "RECENT_HISTORY:\n{history}\n\nCURRENT_QUESTION:\n{query}")
 ])
+
+    # 2. Choose query rewrite prompt based on type
+# query_rewrite_prompt = ChatPromptTemplate.from_messages([
+#         ("system",
+#         "You are a query rewriting assistant for a Retrieval-Augmented Generation (RAG) system.\n"
+#         "\n"
+#         "Your job is to rewrite the user query using clear, formal, keyword-rich language, while preserving the original intent.\n"
+#         "Focus on improving the query so it matches relevant documents in a technical maintenance corpus.\n"
+#         "\n"
+#         "**Strict Instructions:**\n"
+#         "- Do NOT remove any critical keywords present in the original query.\n"
+#         "- Do NOT add speculative content or terms not found in the original query unless they are synonymous technical equivalents.\n"
+#         "- Do NOT rephrase into vague or general language — be specific and precise.\n"
+#         "- Do NOT include any greetings, explanations, or formatting. Return only the rewritten query text.\n"
+#         "- Avoid unnecessary verbosity. The output should be concise, technically rich, and to the point.\n"
+#         "\n"
+#         "**Context:**\n{history}\n"),
+        
+#         ("user", "{query}")
+#     ])
 query_rewrite_chain = LLMChain(llm=llm, prompt=query_rewrite_prompt)
 
 async def rewrite_query(user_query: str, history: str) -> str:
@@ -429,31 +445,7 @@ async def run_test_rag(chat_history: list, user_query: str, forced_route: str | 
     is_drawing_query = route == "mechanical_drawing"
     print(f"DRAWING QUERY BOOLEAN: {is_drawing_query}")
 
-    # 2. Choose query rewrite prompt based on type
-    query_rewrite_prompt = ChatPromptTemplate.from_messages([
-        ("system",
-        "You are a query rewriting assistant for a Retrieval-Augmented Generation (RAG) system.\n"
-        "\n"
-        "Your job is to rewrite the user query using clear, formal, keyword-rich language, while preserving the original intent.\n"
-        "Focus on improving the query so it matches relevant documents in a technical maintenance corpus.\n"
-        "\n"
-        "**Strict Instructions:**\n"
-        "- Do NOT remove any critical keywords present in the original query.\n"
-        "- Do NOT add speculative content or terms not found in the original query unless they are synonymous technical equivalents.\n"
-        "- Do NOT rephrase into vague or general language — be specific and precise.\n"
-        "- Do NOT include any greetings, explanations, or formatting. Return only the rewritten query text.\n"
-        "- Avoid unnecessary verbosity. The output should be concise, technically rich, and to the point.\n"
-        "\n"
-        "**Context:**\n{history}\n"),
-        
-        ("user", "{query}")
-    ])
 
-    # 3. Rewrite the query
-    query_rewrite_chain = LLMChain(llm=llm, prompt=query_rewrite_prompt)
-    rewritten_query = await query_rewrite_chain.apredict(query=user_query, history=history_text)
-
-    print(f"Rewritten query: {rewritten_query}")
     hits = []
     # 4. If drawing-related, predict page from ToC
     if is_drawing_query:
