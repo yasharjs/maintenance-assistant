@@ -130,7 +130,7 @@ llm = AzureChatOpenAI(
     openai_api_key="9RSNCLiFqvGuUVCxVF1CsmDTLNBkHpX1P1jfMsxGMxqR2ES2wCy8JQQJ99BDACHYHv6XJ3w3AAAAACOGSc3o", # type: ignore
     temperature=0.0,
     streaming=True,  # enable streaming
-    max_tokens=1000
+    max_tokens=1536,
 )
 
 
@@ -300,13 +300,31 @@ def build_prompt(kwargs):
         system_rules = (
         "You are an industrial maintenance assistant. "
         "• Put any tabular data inside a fenced Markdown table. "
-        """ When listing rows & columns, output a **GitHub-Flavored Markdown table** using pipes (|) and dashes, no code fences.
-        When creating tables, copy each cell exactly as shown in Context (no re-ordering, no summarising).
+        """You are an industrial maintenance assistant for hydraulic and servo-controlled machines, including Husky G-Line, Hylectric, HyPET, and Quadloc models. You help users troubleshoot issues with Rexroth A10V/A4V pumps, VT5041 amplifier cards, Moog servo valves, and associated control systems.
 
-            Example:
-            | Column A | Column B |
-            |---------|---------|
-            | 10 V    | OK      |
+        Your answers must be clear, factual, helpful, and always based strictly on the context provided. Do not guess or make assumptions. If any required information is missing from the documents, respond with: "I do not have that information in the current context. Please provide more detail."
+
+        Rules:
+        • Always verify and fact-check your answer against the provided technical documentation before responding.
+        • If unsure or ambiguous, ask the user for clarification instead of assuming intent.
+        • Do NOT summarize or reword numerical or calibration values. Repeat them exactly as shown.
+        • If a user asks about test points, voltages, jumper settings, or pin numbers, respond with the exact values from the documentation.
+        • When referencing tabular data (voltages, jumper settings, resistance values, etc.), use a **GitHub-Flavored Markdown table** with pipes (`|`) and dashes (`-`). Do NOT use code fences or bullet lists.
+        • Do NOT reorder, omit, or paraphrase data from any table.
+        • If giving step-by-step instructions, use a numbered list and quote the document exactly when possible.
+        • When referring to measurement procedures, safety steps, or tools (e.g. breakout box, multimeter, jumper plug), mention specific document-based terminology and steps.
+
+        Example table:
+        | Pin | Signal               | Voltage       |
+        |-----|----------------------|---------------|
+        | 1   | Pressure Command     | +8.0V         |
+        | 4   | Swivel Angle         | +9.9V (±0.1V) |
+
+        Always prioritize precision over brevity. If multiple procedures apply, summarize each clearly and label them (e.g., "Step 4.1 – A10VFE1 Pumps", "Section 2.2.3 – Servo Valve Opening Negative Fault").
+
+        Never speculate. If the query is vague, say: "Can you clarify the exact machine, card type, or valve you're referring to?"
+
+        Be professional, clear, and accurate.
             
             """       
         )
@@ -316,9 +334,8 @@ def build_prompt(kwargs):
     else:
         system_rules =  (
         "You are a technical assistant that answers questions based on mechanical drawings and Bill of Materials (BOM) data.\n"
-        "If any required value is missing from Context, answer: 'I do not have that information.'"
         "Use the provided context (including component descriptions, drawing references, and part numbers) to give clear and accurate responses.\n"
-        "- Tell the user: \"You can view the corresponding drawings by clicking the mechanical drawing link below.\"\n"
+        "- Tell the user: \"You can view the corresponding drawings by viewing the mechanical parts below.\"\n"
         "- End with: \"Feel free to ask any follow-up questions if you need more details or clarification.\"\n"
         "- Summarize where the user can find relevant drawings or BOM entries (based on the context).\n"
         )
@@ -412,6 +429,31 @@ async def run_test_rag(chat_history: list, user_query: str, forced_route: str | 
     is_drawing_query = route == "mechanical_drawing"
     print(f"DRAWING QUERY BOOLEAN: {is_drawing_query}")
 
+    # 2. Choose query rewrite prompt based on type
+    query_rewrite_prompt = ChatPromptTemplate.from_messages([
+        ("system",
+        "You are a query rewriting assistant for a Retrieval-Augmented Generation (RAG) system.\n"
+        "\n"
+        "Your job is to rewrite the user query using clear, formal, keyword-rich language, while preserving the original intent.\n"
+        "Focus on improving the query so it matches relevant documents in a technical maintenance corpus.\n"
+        "\n"
+        "**Strict Instructions:**\n"
+        "- Do NOT remove any critical keywords present in the original query.\n"
+        "- Do NOT add speculative content or terms not found in the original query unless they are synonymous technical equivalents.\n"
+        "- Do NOT rephrase into vague or general language — be specific and precise.\n"
+        "- Do NOT include any greetings, explanations, or formatting. Return only the rewritten query text.\n"
+        "- Avoid unnecessary verbosity. The output should be concise, technically rich, and to the point.\n"
+        "\n"
+        "**Context:**\n{history}\n"),
+        
+        ("user", "{query}")
+    ])
+
+    # 3. Rewrite the query
+    query_rewrite_chain = LLMChain(llm=llm, prompt=query_rewrite_prompt)
+    rewritten_query = await query_rewrite_chain.apredict(query=user_query, history=history_text)
+
+    print(f"Rewritten query: {rewritten_query}")
     hits = []
     # 4. If drawing-related, predict page from ToC
     if is_drawing_query:
@@ -500,6 +542,4 @@ async def run_test_rag(chat_history: list, user_query: str, forced_route: str | 
             )
         ],
         citations=citations
-    )
-
- 
+    )   
