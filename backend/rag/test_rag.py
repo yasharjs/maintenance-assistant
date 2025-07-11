@@ -155,21 +155,7 @@ multi_route_prompt = ChatPromptTemplate.from_messages([
 ])
 route_classifier_chain = LLMChain(llm=llm,prompt=multi_route_prompt)
 SIMILARITY_THRESHOLD = 0.65   # keep tuning as you wish
-def hybrid_router(user_query: str, chat_history_str: str = "") -> str:
-    query_embedding = azure_embeddings.embed_query(user_query)
-    similarities    = cosine_similarity([query_embedding], route_embeddings)[0]
-    best_index      = int(similarities.argmax())
-    best_score      = similarities[best_index]
 
-    if best_score >= SIMILARITY_THRESHOLD:
-        return route_keys[best_index]   
-
-    # ── NEW: fallback to 3-class LLM classifier ────────────────────────────
-    llm_route = route_classifier_chain.run(history=chat_history_str, query=user_query)
-    llm_route = llm_route.strip().lower()
-    if llm_route in route_keys:         # sanity-check
-        return llm_route
-    return "general"  
 
 
 AZURE_STORAGE_ACCOUNT = "stdocumentra243626647348"
@@ -204,14 +190,6 @@ CONTAINER_SAS = generate_container_sas(
 #images folder path
 IMAGES_DIR   = "images_pump" 
 CONTAINER_SAS = f"{CONTAINER_SAS}"
-
-def url_from_blob(blob_name: str) -> str:
-    return (
-        f"https://{AZURE_STORAGE_ACCOUNT}.blob.core.windows.net/"
-        f"{CONTAINER}/{blob_name}?{CONTAINER_SAS}"
-    )
-
-
 INDEX_NAME            = "pages"                      # all lower-case
 EMBED_DIM             = 1536  
 VECTOR_FIELD    = "content_vector"
@@ -229,6 +207,7 @@ azure_embeddings = AzureOpenAIEmbeddings(
     api_key              = AZURE_OPENAI_API_KEY,
 )
 
+# ── Prepare routing descriptions ────────────────────────────────────────
 routing_descriptions = {
     "mechanical_drawing": (
         "Use this route for requests involving diagram illustrations, CAD drawings, Bill of Materials (BOM), part numbers, component revisions, or specific references to page numbers in technical drawing packages. "
@@ -243,14 +222,14 @@ routing_descriptions = {
     )
 }
 
-
-# Prepare text and keys
+# ── Prepare Text and Keys ────────────────────────────────────────────────────
 route_texts = list(routing_descriptions.values())
 route_keys = list(routing_descriptions.keys())
 
-# One-time embedding of route descriptions
+# ── One-time embedding of route descriptions ────────────────────────────────────────────────────
 route_embeddings = azure_embeddings.embed_documents(route_texts)
 
+# ── Initialize vector store and retriever ────────────────────────────────────────────────────
 index_name: str = "pdfs"
 vectorstore = AzureSearch(
     azure_search_endpoint=AZURE_SEARCH_ENDPOINT,
@@ -261,17 +240,85 @@ vectorstore = AzureSearch(
     text_key              = "page_content",
     vector_field_name     = VECTOR_FIELD,
 )
-
 retriever = vectorstore.as_retriever(
     search_type="hybrid",
     k=6,              # was 10
   
 )
 
+# ── Prepare the query-rewrite prompt and chain ────────────────────────────────────────────────
+query_rewrite_prompt = ChatPromptTemplate.from_messages([
+    # ---- SYSTEM ---------------------------------------------------
+    ("system",
+     "You are a **query-rewriter**.  You never answer questions.\n"
+     "GOAL → Produce ONE LINE (≤25 words) that is an optimized, standalone search query using clear, keyword-rich language, while preserving the original intent and goal of the user.\n"
+     "HOW →\n"
+     "• Use the CURRENT_QUESTION plus any missing subject words from RECENT_HISTORY.\n"
+     "• Keep all technical terms verbatim (± Vdc, Pin 3, enable signal, etc.).\n"
+     "• Do NOT add analogies, definitions, or explanations.\n"
+     "• Do NOT answer the question.\n"
+     "• Return *only* the rewritten query text, no punctuation before/after, no extra lines.\n"
+     "**Strict Instructions:**\n"
+         "- Do NOT remove any critical keywords present in the original query.\n"
+         "- Do NOT add speculative content or terms not found in the original query unless they are synonymous technical equivalents.\n"
+         "- Do NOT rephrase into vague or general language — be specific and precise.\n"
+         "- Do NOT include any greetings, explanations, or formatting. Return only the rewritten query text.\n"
+        "- Do NOT use any special characters, emojis, or formatting like bold/italics.\n"
+         "- You MAY include intent modifiers like 'for beginners', 'like a 5 year old', or 'for experts' **if they are clearly part of the user’s query or style request."
+    ),
+    # ---- FEW-SHOT EXAMPLES ----------------------------------------
+    # ❶ follow-up without subject
+    ("human", "RECENT_HISTORY:\nUser: What is the enable signal voltage range?\nAssistant: …\n\nCURRENT_QUESTION:\nWhy is it important?"),
+    ("assistant", "importance of enable signal voltage range Moog servo valve breakout box"),
+    # ❷ “explain like 5” request
+    ("human", "RECENT_HISTORY:\nUser: How does a servo valve control flow?\nAssistant: …\n\nCURRENT_QUESTION:\nExplain it like I'm 5"),
+    ("assistant", "servo valve flow control principle electrohydraulic mechanism explanation like a 5 year old"),
+
+    ("human", "CURRENT_QUESTION: what's a hydraulic pump do in kid language?"),
+    ("assistant", "hydraulic pump basic function explanation like a 5 year old"),
+
+    ("human", "CURRENT_QUESTION: explain A10V pump to a junior technician"),
+    ("assistant", "A10V hydraulic pump function explained for junior technician"),
+
+    ("human", "CURRENT_QUESTION: explain directional valve in simple terms"),
+    ("assistant", "directional valve purpose and operation simple explanation for beginners"),
+
+    # ---- REAL-TIME SLOT -------------------------------------------
+    ("human",
+     "RECENT_HISTORY:\n{history}\n\nCURRENT_QUESTION:\n{query}")
+])
+query_rewrite_chain = LLMChain(llm=llm,prompt=query_rewrite_prompt)
+
+# ── Helper to convert blob name to URL ────────────────────────────────────────────────
+def url_from_blob(blob_name: str) -> str:
+    return (
+        f"https://{AZURE_STORAGE_ACCOUNT}.blob.core.windows.net/"
+        f"{CONTAINER}/{blob_name}?{CONTAINER_SAS}"
+    )
+
+# ── Hybrid routing function ────────────────────────────────────────────────────────────────
+def hybrid_router(user_query: str, chat_history_str: str = "") -> str:
+    query_embedding = azure_embeddings.embed_query(user_query)
+    similarities    = cosine_similarity([query_embedding], route_embeddings)[0]
+    best_index      = int(similarities.argmax())
+    best_score      = similarities[best_index]
+
+    if best_score >= SIMILARITY_THRESHOLD:
+        return route_keys[best_index]   
+
+    # ── NEW: fallback to 3-class LLM classifier ────────────────────────────
+    llm_route = route_classifier_chain.run(history=chat_history_str, query=user_query)
+    llm_route = llm_route.strip().lower()
+    if llm_route in route_keys:         # sanity-check
+        return llm_route
+    return "general"  
+
+# ── Helper to parse page numbers from LLM text ────────────────────────────────────────────────
 def _parse_page_numbers(raw: str) -> list[int]:
     """Return sorted unique page ints extracted from any LLM text."""
     return sorted({int(n) for n in re.findall(r"\d+", raw)})
 
+# ── Helper to convert documents to citations ────────────────────────────────────────────────
 def _docs_to_citations(docs):
     """Return a list[dict] each with id/title/url/chunk so the Vue panel shows them."""
     citations = []
@@ -290,7 +337,7 @@ def _docs_to_citations(docs):
         })
     return citations
 
-# ── 3. Build multimodal prompt ───────────────────4────────────────────────────
+# ── Helper to build the prompt for the LLM ────────────────────────────────────────────────
 def build_prompt(kwargs):
     ctx = kwargs["context"]
     question = kwargs["question"]
@@ -358,8 +405,7 @@ def build_prompt(kwargs):
         HumanMessage(content=blocks), # type: ignore
     ])
 
-
-# ── 2. Helper to split out text vs images ────────────────────────────────────
+# ── Helper to split out text vs images ────────────────────────────────────
 def split_docs(docs):
     out = {"texts": [], "images": []}
     for d in docs:
@@ -398,53 +444,11 @@ def to_lc_doc(raw: dict) -> Document:
     )
 
 # ── QUERY-REWRITE HELPER ────────────────────────────────────────────────────
-query_rewrite_prompt = ChatPromptTemplate.from_messages([
-    # ---- SYSTEM ---------------------------------------------------
-    ("system",
-     "You are a **query-rewriter**.  You never answer questions.\n"
-     "GOAL → Produce ONE LINE (≤25 words) that is an optimized, standalone search query using clear, keyword-rich language, while preserving the original intent and goal of the user.\n"
-     "HOW →\n"
-     "• Use the CURRENT_QUESTION plus any missing subject words from RECENT_HISTORY.\n"
-     "• Keep all technical terms verbatim (± Vdc, Pin 3, enable signal, etc.).\n"
-     "• Do NOT add analogies, definitions, or explanations.\n"
-     "• Do NOT answer the question.\n"
-     "• Return *only* the rewritten query text, no punctuation before/after, no extra lines.\n"
-     "**Strict Instructions:**\n"
-         "- Do NOT remove any critical keywords present in the original query.\n"
-         "- Do NOT add speculative content or terms not found in the original query unless they are synonymous technical equivalents.\n"
-         "- Do NOT rephrase into vague or general language — be specific and precise.\n"
-         "- Do NOT include any greetings, explanations, or formatting. Return only the rewritten query text.\n"
-        "- Do NOT use any special characters, emojis, or formatting like bold/italics.\n"
-         "- You MAY include intent modifiers like 'for beginners', 'like a 5 year old', or 'for experts' **if they are clearly part of the user’s query or style request."
-    ),
-    # ---- FEW-SHOT EXAMPLES ----------------------------------------
-    # ❶ follow-up without subject
-    ("human", "RECENT_HISTORY:\nUser: What is the enable signal voltage range?\nAssistant: …\n\nCURRENT_QUESTION:\nWhy is it important?"),
-    ("assistant", "importance of enable signal voltage range Moog servo valve breakout box"),
-    # ❷ “explain like 5” request
-    ("human", "RECENT_HISTORY:\nUser: How does a servo valve control flow?\nAssistant: …\n\nCURRENT_QUESTION:\nExplain it like I'm 5"),
-    ("assistant", "servo valve flow control principle electrohydraulic mechanism explanation like a 5 year old"),
-
-    ("human", "CURRENT_QUESTION: what's a hydraulic pump do in kid language?"),
-    ("assistant", "hydraulic pump basic function explanation like a 5 year old"),
-
-    ("human", "CURRENT_QUESTION: explain A10V pump to a junior technician"),
-    ("assistant", "A10V hydraulic pump function explained for junior technician"),
-
-    ("human", "CURRENT_QUESTION: explain directional valve in simple terms"),
-    ("assistant", "directional valve purpose and operation simple explanation for beginners"),
-
-    # ---- REAL-TIME SLOT -------------------------------------------
-    ("human",
-     "RECENT_HISTORY:\n{history}\n\nCURRENT_QUESTION:\n{query}")
-])
-
-query_rewrite_chain = LLMChain(llm=llm,prompt=query_rewrite_prompt)
-
 async def rewrite_query(user_query: str, history: str) -> str:
     """Return an LLM-rewritten version of `user_query`."""
     return await query_rewrite_chain.apredict(query=user_query, history=history)
 
+# ── MAIN FUNCTION ────────────────────────────────────────────────────
 @traceable
 async def run_test_rag(chat_history: list, user_query: str, forced_route: str | None = None):
     global history_text                         # let build_prompt see the update

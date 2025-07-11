@@ -1,11 +1,8 @@
-import copy
-import json
 import os
 import logging
 import time
 from types import SimpleNamespace
 import uuid
-import httpx
 import asyncio
 from quart import (
     Blueprint,
@@ -20,14 +17,11 @@ from quart import (
 from openai import AsyncAzureOpenAI
 from azure.identity.aio import (
     DefaultAzureCredential,
-    get_bearer_token_provider
 )
 from backend.auth.auth_utils import get_authenticated_user_details
-from backend.security.ms_defender_utils import get_msdefender_user_json
 from backend.history.cosmosdbservice import CosmosConversationClient
 from backend.settings import (
     app_settings,
-    MINIMUM_SUPPORTED_AZURE_OPENAI_PREVIEW_API_VERSION
 )
 from backend.utils import (
     format_as_ndjson,
@@ -40,7 +34,6 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain.agents import initialize_agent
 from langchain.agents.agent_types import AgentType
 from langchain_core.tools import tool
-from langchain.chains   import LLMChain
 from backend.rag.test_rag import run_test_rag
 from langchain.schema import HumanMessage, AIMessage
 from langsmith import traceable
