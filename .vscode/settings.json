@@ -1,0 +1,12 @@
+// .vscode/settings.json
+{
+  "python.defaultInterpreterPath": ".venv\\Scripts\\python.exe",
+  "python.analysis.typeCheckingMode": "basic",
+  "python.analysis.diagnosticSeverityOverrides": {
+    "reportOptionalMemberAccess": "none",
+    "reportAttributeAccessIssue": "none",
+    "reportArgumentType": "warning"
+  },
+  "python.analysis.autoSearchPaths": true,
+  "python.analysis.useLibraryCodeForTypes": true
+}

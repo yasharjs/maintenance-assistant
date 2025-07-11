@@ -41,10 +41,10 @@ class _UiSettings(BaseSettings):
         env_ignore_empty=True
     )
 
-    title: str = "Amcor Agent"
+    title: str = "Maintenance Agent"
     logo: Optional[str] = None
     chat_logo: Optional[str] = None
-    chat_title: str = "Amcor Agent"
+    chat_title: str = "Maintenance Agent"
     chat_description: str = "Your expert AI, empowering you to do more."
     favicon: str = "/favicon.ico"
     show_share_button: bool = True

@@ -116,7 +116,10 @@ def format_stream_response(chatCompletionChunk, history_metadata, apim_request_i
         "history_metadata": history_metadata,
         "apim-request-id": apim_request_id,
     }
-
+    # If the chatCompletionChunk object has a 'citations' attribute, 
+    # add it to the response payload so citations can be sent to the frontend.
+    if hasattr(chatCompletionChunk, "citations"):
+        response_obj["citations"] = chatCompletionChunk.citations
     if len(chatCompletionChunk.choices) > 0:
         delta = chatCompletionChunk.choices[0].delta
         if delta:

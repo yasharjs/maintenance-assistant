@@ -1,9 +1,8 @@
-import copy
-import json
 import os
 import logging
+import time
+from types import SimpleNamespace
 import uuid
-import httpx
 import asyncio
 from quart import (
     Blueprint,
@@ -15,30 +14,35 @@ from quart import (
     render_template,
     current_app,
 )
-
 from openai import AsyncAzureOpenAI
 from azure.identity.aio import (
     DefaultAzureCredential,
-    get_bearer_token_provider
 )
 from backend.auth.auth_utils import get_authenticated_user_details
-from backend.security.ms_defender_utils import get_msdefender_user_json
 from backend.history.cosmosdbservice import CosmosConversationClient
 from backend.settings import (
     app_settings,
-    MINIMUM_SUPPORTED_AZURE_OPENAI_PREVIEW_API_VERSION
 )
 from backend.utils import (
     format_as_ndjson,
-    format_stream_response,
-    format_non_streaming_response,
-    convert_to_pf_format,
-    format_pf_non_streaming_response,
+    format_stream_response
 )
 
-from autogen_agentchat.agents import AssistantAgent
-from autogen_agentchat.messages import TextMessage
-from autogen_ext.models.openai import AzureOpenAIChatCompletionClient
+
+from langchain_openai import AzureChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+from langchain.agents import initialize_agent
+from langchain.agents.agent_types import AgentType
+from langchain_core.tools import tool
+from backend.rag.test_rag import run_test_rag
+from langchain.schema import HumanMessage, AIMessage
+from langsmith import traceable
+import os
+
+os.environ["LANGCHAIN_TRACING_V2"] = "true"
+os.environ["LANGSMITH_API_KEY"] = "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"
+os.environ["LANGSMITH_PROJECT"] = "testing-rag"
+os.environ["LANGSMITH_ENDPOINT"] = "https://api.smith.langchain.com"
 
 # Defines a modular route group with access to static files for UI rendering
 bp = Blueprint("routes", __name__, static_folder="static", template_folder="static")
@@ -134,99 +138,6 @@ MS_DEFENDER_ENABLED = os.environ.get("MS_DEFENDER_ENABLED", "true").lower() == "
 azure_openai_tools = []
 azure_openai_available_tools = []
 
-# Initialize Azure OpenAI Client
-async def init_openai_client():
-    azure_openai_client = None
-    
-    try:
-        # API version check
-        if (
-            app_settings.azure_openai.preview_api_version
-            < MINIMUM_SUPPORTED_AZURE_OPENAI_PREVIEW_API_VERSION
-        ):
-            raise ValueError(
-                f"The minimum supported Azure OpenAI preview API version is '{MINIMUM_SUPPORTED_AZURE_OPENAI_PREVIEW_API_VERSION}'"
-            )
-
-        # Endpoint
-        if (
-            not app_settings.azure_openai.endpoint and
-            not app_settings.azure_openai.resource
-        ):
-            raise ValueError(
-                "AZURE_OPENAI_ENDPOINT or AZURE_OPENAI_RESOURCE is required"
-            )
-
-        endpoint = (
-            app_settings.azure_openai.endpoint
-            if app_settings.azure_openai.endpoint
-            else f"https://{app_settings.azure_openai.resource}.openai.azure.com/"
-        )
-
-        # Authentication
-        aoai_api_key = app_settings.azure_openai.key
-        ad_token_provider = None
-        if not aoai_api_key:
-            logging.debug("No AZURE_OPENAI_KEY found, using Azure Entra ID auth")
-            async with DefaultAzureCredential() as credential:
-                ad_token_provider = get_bearer_token_provider(
-                    credential,
-                    "https://cognitiveservices.azure.com/.default"
-                )
-
-        # Deployment
-        deployment = app_settings.azure_openai.model
-        if not deployment:
-            raise ValueError("AZURE_OPENAI_MODEL is required")
-
-        # Default Headers
-        default_headers = {"x-ms-useragent": USER_AGENT}
-
-        # Remote function calls
-        if app_settings.azure_openai.function_call_azure_functions_enabled:
-            azure_functions_tools_url = f"{app_settings.azure_openai.function_call_azure_functions_tools_base_url}?code={app_settings.azure_openai.function_call_azure_functions_tools_key}"
-            async with httpx.AsyncClient() as client:
-                response = await client.get(azure_functions_tools_url)
-            response_status_code = response.status_code
-            if response_status_code == httpx.codes.OK:
-                azure_openai_tools.extend(json.loads(response.text))
-                for tool in azure_openai_tools:
-                    azure_openai_available_tools.append(tool["function"]["name"])
-            else:
-                logging.error(f"An error occurred while getting OpenAI Function Call tools metadata: {response.status_code}")
-
-        
-        azure_openai_client = AsyncAzureOpenAI(
-            api_version=app_settings.azure_openai.preview_api_version,
-            api_key=aoai_api_key,
-            azure_ad_token_provider=ad_token_provider,
-            default_headers=default_headers,
-            azure_endpoint=endpoint,
-        )
-
-        return azure_openai_client
-    except Exception as e:
-        logging.exception("Exception in Azure OpenAI initialization", e)
-        azure_openai_client = None
-        raise e
-
-# sends a request to an Azure Function endpoint to execute a specific tool or function call with the provided name and arguments, returning the function's response.
-async def openai_remote_azure_function_call(function_name, function_args):
-    if app_settings.azure_openai.function_call_azure_functions_enabled is not True:
-        return
-
-    azure_functions_tool_url = f"{app_settings.azure_openai.function_call_azure_functions_tool_base_url}?code={app_settings.azure_openai.function_call_azure_functions_tool_key}"
-    headers = {'content-type': 'application/json'}
-    body = {
-        "tool_name": function_name,
-        "tool_arguments": json.loads(function_args)
-    }
-    async with httpx.AsyncClient() as client:
-        response = await client.post(azure_functions_tool_url, data=json.dumps(body), headers=headers)
-    response.raise_for_status()
-
-    return response.text
-
 async def init_cosmosdb_client():
     cosmos_conversation_client = None
     if app_settings.chat_history:
@@ -258,338 +169,113 @@ async def init_cosmosdb_client():
 
     return cosmos_conversation_client
 
+from backend.rag.test_rag import hybrid_router, llm, rewrite_query 
+MAX_PAIRS_FOR_ROUTER = 3       # tune between 2-4
 
-def prepare_model_args(request_body, request_headers):
-    request_messages = request_body.get("messages", [])
-    messages = [
-    {
-        "role": "system",
-        "content": app_settings.azure_openai.system_message
-    }
-    ] 
+def build_router_input(chat_history: list):
+    parts = []
+    for m in chat_history:
+        role = "User" if m.type == "human" else "Assistant"
+        parts.append(f"{role}: {m.content}")
+    return "\n".join(parts)
 
+@traceable
+async def smart_run(chat_history: list, user_query: str):
+    """Decides RAG or direct chat."""
+    chat_history_str = build_router_input(chat_history)
+    rewritten_query = await rewrite_query(user_query, chat_history_str)
+    print(f"[REWRITE] {rewritten_query}")
+    route = hybrid_router(rewritten_query, chat_history_str)
+    print(f"[ROUTER] Decided route → {route}")
 
-    for message in request_messages:
-        if message:
-            match message["role"]:
-                case "user":
-                    messages.append(
-                        {
-                            "role": message["role"],
-                            "content": message["content"]
-                        }
-                    )
-                case "assistant" | "function" | "tool":
-                    messages_helper = {}
-                    messages_helper["role"] = message["role"]
-                    if "name" in message:
-                        messages_helper["name"] = message["name"]
-                    if "function_call" in message:
-                        messages_helper["function_call"] = message["function_call"]
-                    messages_helper["content"] = message["content"]
-                    if "context" in message:
-                        context_obj = json.loads(message["context"])
-                        messages_helper["context"] = context_obj
-                    
-                    messages.append(messages_helper)
+    if route in ["mechanical_drawing", "troubleshooting"]:
+        async for chunk in run_test_rag(chat_history, rewritten_query, forced_route=route):
+            yield chunk
+    else:
+        msgs = []
+        for m in chat_history:
+            role = "user" if m.type == "human" else "assistant"
+            msgs.append({"role": role, "content": m.content})
 
-
-    user_json = None
-    if (MS_DEFENDER_ENABLED):
-        authenticated_user_details = get_authenticated_user_details(request_headers)
-        conversation_id = request_body.get("conversation_id", None)
-        application_name = app_settings.ui.title
-        user_json = get_msdefender_user_json(authenticated_user_details, request_headers, conversation_id, application_name)
-
-    model_args = {
-        "messages": messages,
-        "temperature": app_settings.azure_openai.temperature,
-        "max_tokens": app_settings.azure_openai.max_tokens,
-        "top_p": app_settings.azure_openai.top_p,
-        "stop": app_settings.azure_openai.stop_sequence,
-        "stream": app_settings.azure_openai.stream,
-        "model": app_settings.azure_openai.model,
-        "user": user_json
-    }
-
-    if len(messages) > 0:
-        if messages[-1]["role"] == "user":
-            if app_settings.azure_openai.function_call_azure_functions_enabled and len(azure_openai_tools) > 0:
-                model_args["tools"] = azure_openai_tools
-
-            if app_settings.datasource:
-                model_args["extra_body"] = {
-                    "data_sources": [
-                        app_settings.datasource.construct_payload_configuration(
-                            request=request
+        # Add current user query
+        msgs.append({"role": "user", "content": user_query})
+        async for chunk in llm.astream(msgs):
+            if chunk.content:
+                yield SimpleNamespace(
+                    id=str(uuid.uuid4()),
+                    object="chat.completion.chunk",
+                    model="gpt-4o",
+                    created=int(time.time()),
+                    choices=[
+                        SimpleNamespace(
+                            index=0,
+                            delta=SimpleNamespace(
+                                role="assistant",
+                                content=chunk.content,
+                                citations=[],
+                                tool_calls=None
+                            )
                         )
                     ]
-                }
-
-    model_args_clean = copy.deepcopy(model_args)
-    if model_args_clean.get("extra_body"):
-        secret_params = [
-            "key",
-            "connection_string",
-            "embedding_key",
-            "encoded_api_key",
-            "api_key",
-        ]
-        for secret_param in secret_params:
-            if model_args_clean["extra_body"]["data_sources"][0]["parameters"].get(
-                secret_param
-            ):
-                model_args_clean["extra_body"]["data_sources"][0]["parameters"][
-                    secret_param
-                ] = "*****"
-        authentication = model_args_clean["extra_body"]["data_sources"][0][
-            "parameters"
-        ].get("authentication", {})
-        for field in authentication:
-            if field in secret_params:
-                model_args_clean["extra_body"]["data_sources"][0]["parameters"][
-                    "authentication"
-                ][field] = "*****"
-        embeddingDependency = model_args_clean["extra_body"]["data_sources"][0][
-            "parameters"
-        ].get("embedding_dependency", {})
-        if "authentication" in embeddingDependency:
-            for field in embeddingDependency["authentication"]:
-                if field in secret_params:
-                    model_args_clean["extra_body"]["data_sources"][0]["parameters"][
-                        "embedding_dependency"
-                    ]["authentication"][field] = "*****"
-
-    logging.debug(f"REQUEST BODY: {json.dumps(model_args_clean, indent=4)}")
-
-    return model_args
-
-
-async def promptflow_request(request):
-    try:
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {app_settings.promptflow.api_key}",
-        }
-        # Adding timeout for scenarios where response takes longer to come back
-        logging.debug(f"Setting timeout to {app_settings.promptflow.response_timeout}")
-        async with httpx.AsyncClient(
-            timeout=float(app_settings.promptflow.response_timeout)
-        ) as client:
-            pf_formatted_obj = convert_to_pf_format(
-                request,
-                app_settings.promptflow.request_field_name,
-                app_settings.promptflow.response_field_name
             )
-            # NOTE: This only support question and chat_history parameters
-            # If you need to add more parameters, you need to modify the request body
-            response = await client.post(
-                app_settings.promptflow.endpoint,
-                json={
-                    app_settings.promptflow.request_field_name: pf_formatted_obj[-1]["inputs"][app_settings.promptflow.request_field_name],
-                    "chat_history": pf_formatted_obj[:-1],
-                },
-                headers=headers,
-            )
-        resp = response.json()
-        resp["id"] = request["messages"][-1]["id"]
-        return resp
-    except Exception as e:
-        logging.error(f"An error occurred while making promptflow_request: {e}")
-
-
-async def process_function_call(response):
-    response_message = response.choices[0].message
-    messages = []
-
-    if response_message.tool_calls:
-        for tool_call in response_message.tool_calls:
-            # Check if function exists
-            if tool_call.function.name not in azure_openai_available_tools:
-                continue
-            
-            function_response = await openai_remote_azure_function_call(tool_call.function.name, tool_call.function.arguments)
-
-            # adding assistant response to messages
-            messages.append(
-                {
-                    "role": response_message.role,
-                    "function_call": {
-                        "name": tool_call.function.name,
-                        "arguments": tool_call.function.arguments,
-                    },
-                    "content": None,
-                }
-            )
-            
-            # adding function response to messages
-            messages.append(
-                {
-                    "role": "function",
-                    "name": tool_call.function.name,
-                    "content": function_response,
-                }
-            )  # extend conversation with function response
-        
-        return messages
-    
-    return None
-
-async def send_chat_request(request_body, request_headers):
-    filtered_messages = []
-    messages = request_body.get("messages", [])
-    for message in messages:
-        if message.get("role") != 'tool':
-            filtered_messages.append(message)
-            
-    request_body['messages'] = filtered_messages
-    model_args = prepare_model_args(request_body, request_headers)
-
-    try:
-        azure_openai_client = await init_openai_client()
-        raw_response = await azure_openai_client.chat.completions.with_raw_response.create(**model_args)
-        response = raw_response.parse()
-        apim_request_id = raw_response.headers.get("apim-request-id") 
-    except Exception as e:
-        logging.exception("Exception in send_chat_request")
-        raise e
-
-    return response, apim_request_id
-
-
-async def complete_chat_request(request_body, request_headers):
-    if app_settings.base_settings.use_promptflow:
-        response = await promptflow_request(request_body)
-        history_metadata = request_body.get("history_metadata", {})
-        return format_pf_non_streaming_response(
-            response,
-            history_metadata,
-            app_settings.promptflow.response_field_name,
-            app_settings.promptflow.citations_field_name
-        )
-    else:
-        response, apim_request_id = await send_chat_request(request_body, request_headers)
-        history_metadata = request_body.get("history_metadata", {})
-        non_streaming_response = format_non_streaming_response(response, history_metadata, apim_request_id)
-
-        if app_settings.azure_openai.function_call_azure_functions_enabled:
-            function_response = await process_function_call(response)  # Add await here
-
-            if function_response:
-                request_body["messages"].extend(function_response)
-
-                response, apim_request_id = await send_chat_request(request_body, request_headers)
-                history_metadata = request_body.get("history_metadata", {})
-                non_streaming_response = format_non_streaming_response(response, history_metadata, apim_request_id)
-
-    return non_streaming_response
-
-class AzureOpenaiFunctionCallStreamState():
-    def __init__(self):
-        self.tool_calls = []                # All tool calls detected in the stream
-        self.tool_name = ""                 # Tool name being streamed
-        self.tool_arguments_stream = ""     # Tool arguments being streamed
-        self.current_tool_call = None       # JSON with the tool name and arguments currently being streamed
-        self.function_messages = []         # All function messages to be appended to the chat history
-        self.streaming_state = "INITIAL"    # Streaming state (INITIAL, STREAMING, COMPLETED)
-
-
-async def process_function_call_stream(completionChunk, function_call_stream_state, request_body, request_headers, history_metadata, apim_request_id):
-    if hasattr(completionChunk, "choices") and len(completionChunk.choices) > 0:
-        response_message = completionChunk.choices[0].delta
-        
-        # Function calling stream processing
-        if response_message.tool_calls and function_call_stream_state.streaming_state in ["INITIAL", "STREAMING"]:
-            function_call_stream_state.streaming_state = "STREAMING"
-            for tool_call_chunk in response_message.tool_calls:
-                # New tool call
-                if tool_call_chunk.id:
-                    if function_call_stream_state.current_tool_call:
-                        function_call_stream_state.tool_arguments_stream += tool_call_chunk.function.arguments if tool_call_chunk.function.arguments else ""
-                        function_call_stream_state.current_tool_call["tool_arguments"] = function_call_stream_state.tool_arguments_stream
-                        function_call_stream_state.tool_arguments_stream = ""
-                        function_call_stream_state.tool_name = ""
-                        function_call_stream_state.tool_calls.append(function_call_stream_state.current_tool_call)
-
-                    function_call_stream_state.current_tool_call = {
-                        "tool_id": tool_call_chunk.id,
-                        "tool_name": tool_call_chunk.function.name if function_call_stream_state.tool_name == "" else function_call_stream_state.tool_name
-                    }
-                else:
-                    function_call_stream_state.tool_arguments_stream += tool_call_chunk.function.arguments if tool_call_chunk.function.arguments else ""
-                
-        # Function call - Streaming completed
-        elif response_message.tool_calls is None and function_call_stream_state.streaming_state == "STREAMING":
-            function_call_stream_state.current_tool_call["tool_arguments"] = function_call_stream_state.tool_arguments_stream
-            function_call_stream_state.tool_calls.append(function_call_stream_state.current_tool_call)
-            
-            for tool_call in function_call_stream_state.tool_calls:
-                tool_response = await openai_remote_azure_function_call(tool_call["tool_name"], tool_call["tool_arguments"])
-
-                function_call_stream_state.function_messages.append({
-                    "role": "assistant",
-                    "function_call": {
-                        "name" : tool_call["tool_name"],
-                        "arguments": tool_call["tool_arguments"]
-                    },
-                    "content": None
-                })
-                function_call_stream_state.function_messages.append({
-                    "tool_call_id": tool_call["tool_id"],
-                    "role": "function",
-                    "name": tool_call["tool_name"],
-                    "content": tool_response,
-                })
-            
-            function_call_stream_state.streaming_state = "COMPLETED"
-            return function_call_stream_state.streaming_state
-        
-        else:
-            return function_call_stream_state.streaming_state
 
 
 async def stream_chat_request(request_body, request_headers):
-    response, apim_request_id = await send_chat_request(request_body, request_headers)
-    history_metadata = request_body.get("history_metadata", {})
-    
-    async def generate(apim_request_id, history_metadata):
-        if app_settings.azure_openai.function_call_azure_functions_enabled:
-            # Maintain state during function call streaming
-            function_call_stream_state = AzureOpenaiFunctionCallStreamState()
-            
-            async for completionChunk in response:
-                stream_state = await process_function_call_stream(completionChunk, function_call_stream_state, request_body, request_headers, history_metadata, apim_request_id)
-                
-                # No function call, asistant response
-                if stream_state == "INITIAL":
-                    yield format_stream_response(completionChunk, history_metadata, apim_request_id)
+    """Stream the assistant response *and* let the final chunk carry citations.
 
-                # Function call stream completed, functions were executed.
-                # Append function calls and results to history and send to OpenAI, to stream the final answer.
-                if stream_state == "COMPLETED":
-                    request_body["messages"].extend(function_call_stream_state.function_messages)
-                    function_response, apim_request_id = await send_chat_request(request_body, request_headers)
-                    async for functionCompletionChunk in function_response:
-                        yield format_stream_response(functionCompletionChunk, history_metadata, apim_request_id)
-                
-        else:
-            async for completionChunk in response:
-                yield format_stream_response(completionChunk, history_metadata, apim_request_id)
+        The front-end’s Chat.tsx simply splits the byte stream on newlines and
+        JSON-parses every line, so each `yield` must be one COMPLETE JSON object
+        on its own line (format_stream_response handles that for us).
+    """
 
-    return generate(apim_request_id=apim_request_id, history_metadata=history_metadata)
+    # 1 Pull the most-recent user message text
+    last_user_msg = next(
+        (m["content"] for m in reversed(request_body["messages"]) if m["role"] == "user"),
+        ""
+    )
+
+    # 2️ Any metadata you want to keep flowing through
+    history_md = request_body.get("history_metadata", {})
+
+    # convert messages from request body to chathistory for langchain
+    messages = request_body.get("messages", [])
+    chat_history = convert_messages_to_chat_history(messages)
+
+    # 3️ Pass it to the RAG async generator and forward each chunk
+    async for rag_chunk in smart_run(chat_history, last_user_msg):
+        #   rag_chunk is already OpenAI-style.  `format_stream_response`
+        #   adds request-/history-ids etc. and serialises to NDJSON.
+        yield format_stream_response(
+            rag_chunk,
+            history_md,
+            rag_chunk.id                        # we set this in _wrap_chunk
+        )
+
+def convert_messages_to_chat_history(messages: list):
+    # Step 1: Slice to get only recent messages (each pair = 2 messages)
+    recent_raw_msgs = messages[-(MAX_PAIRS_FOR_ROUTER * 2 + 1):]
+
+    # Step 2: Convert only recent messages to LangChain message objects
+    chat_history = []
+    for msg in recent_raw_msgs:
+        role = msg.get("role")
+        content = msg.get("content", "")
+        if role == "user":
+            chat_history.append(HumanMessage(content=content))
+        elif role == "assistant":
+            chat_history.append(AIMessage(content=content))
+    return chat_history
 
 # This function handles the core logic for processing the user's message.
 async def conversation_internal(request_body, request_headers):
     try:
         if app_settings.azure_openai.stream and not app_settings.base_settings.use_promptflow:
-            result = await stream_chat_request(request_body, request_headers)
+            result =  stream_chat_request(request_body, request_headers)
             response = await make_response(format_as_ndjson(result))
             response.timeout = None
             response.mimetype = "application/json-lines"
             return response
-        else:
-            result = await complete_chat_request(request_body, request_headers)
-            return jsonify(result)
+       
 
     except Exception as ex:
         logging.exception(ex)
@@ -599,7 +285,7 @@ async def conversation_internal(request_body, request_headers):
             return jsonify({"error": str(ex)}), 500
 
 
-@bp.route("/conversation", methods=["POST"])
+@bp.route("/conversation", methods=["POST"]) # type: ignore
 async def conversation():
     if not request.is_json:
         return jsonify({"error": "request must be json"}), 415
@@ -618,7 +304,7 @@ def get_frontend_settings():
 
 
 ## Conversation History API ##
-@bp.route("/history/generate", methods=["POST"])
+@bp.route("/history/generate", methods=["POST"]) # type: ignore
 async def add_conversation():
     await cosmos_db_ready.wait()
     authenticated_user = get_authenticated_user_details(request_headers=request.headers)
@@ -636,7 +322,12 @@ async def add_conversation():
         # check for the conversation_id, if the conversation is not set, we will create a new one
         history_metadata = {}
         if not conversation_id:
-            title = await generate_title(request_json["messages"])
+            try:
+               title = await run_agent_on_conversation(request_json["messages"])
+            except Exception as e:
+               print(f"Title generation failed: {e}")
+               title = "Untitled Conversation"
+
             conversation_dict = await current_app.cosmos_conversation_client.create_conversation(
                 user_id=user_id, title=title
             )
@@ -1053,76 +744,59 @@ async def ensure_cosmos():
         else:
             return jsonify({"error": "CosmosDB is not working"}), 500
 
+@tool
+async def generate_title(conversation_messages: str) -> str:
+    """
+    Summarizes a conversation string into a short 4-word title. 
+    Do not use punctuation or quotation marks.
+    """
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", "Summarize the conversation so far into a 4-word or less title. "
+                   "Do not use any quotation marks or punctuation."),
+        ("user", conversation_messages)
+    ])
 
-async def generate_title(conversation_messages) -> str:
-    ## make sure the messages are sorted by _ts descending
-    # title_prompt = "Summarize the conversation so far into a 4-word or less title. Do not use any quotation marks or punctuation. Do not include any other commentary or description."
-
-    # messages = [
-    #     {"role": msg["role"], "content": msg["content"]}
-    #     for msg in conversation_messages
-    # ]
-    # messages.append({"role": "user", "content": title_prompt})
-
-    # try:
-    #     azure_openai_client = await init_openai_client()
-    #     response = await azure_openai_client.chat.completions.create(
-    #         model=app_settings.azure_openai.model, messages=messages, temperature=1, max_tokens= 800
-    #     )
-
-    #     title = response.choices[0].message.content
-    #     return title
-    # except Exception as e:
-    #     logging.exception("Exception while generating title", e)
-    #     return messages[-2]["content"]
-
-    #Testing Autogen
-    # Create Azure OpenAI client using AutoGen's model client
-    # sorted_messages = sorted(conversation_messages, key=lambda x: x["_ts"], reverse=True)
-    model_client = AzureOpenAIChatCompletionClient(
-        azure_deployment=app_settings.azure_openai.model,
-        model=app_settings.azure_openai.model,
-        api_version=app_settings.azure_openai.preview_api_version,
+    llm = AzureChatOpenAI(
+        openai_api_key=app_settings.azure_openai.key, # type: ignore
         azure_endpoint=app_settings.azure_openai.endpoint,
-        api_key=app_settings.azure_openai.key
-    )
-    
-
-    # Create an AssistantAgent
-    agent = AssistantAgent(
-        name="title_agent",
-        model_client=model_client,
-        system_message="Summarize the conversation so far into a 4-word or less title. Do not use any quotation marks or punctuation. Do not include any other commentary or description.",
+        deployment_name=app_settings.azure_openai.model, # type: ignore
+        openai_api_version=app_settings.azure_openai.preview_api_version, # type: ignore
+        temperature=1,
+        max_tokens=20
     )
 
-    # Build conversation history as AutoGen TextMessages
-    agent_messages = [
-        TextMessage(source=msg["role"], content=msg["content"])
-        for msg in conversation_messages
-    ]
+    chain = prompt | llm
+    result = await chain.ainvoke({})
+    return result.content.strip()
 
-    agent_messages.append(
-        TextMessage(
-            source="user",
-            content="Summarize the conversation so far into a 4-word or less title. Do not use any quotation marks or punctuation. Do not include any other commentary or description.",
-        )
+
+async def run_agent_on_conversation(conversation_messages) -> str:
+    # Convert message list to a plain conversation string
+    conversation = "\n".join(
+        f"{msg['role']}: {msg['content']}" for msg in conversation_messages
     )
 
-    try:
-        # Use agent.run with messages
-        result = await agent.run(task=agent_messages)
-        # Extract the agent's last message as the title
-        last_message = result.messages[-1]
-        if isinstance(last_message, TextMessage):
-            return last_message.content.strip()
-        else:
-            logging.warning("Unexpected message type from agent")
-            return agent_messages[-2].content  # Fallback to last message before title prompt
-    except Exception as e:
-        logging.exception("Exception while generating title", e)
-        return agent_messages[-2].content
-    finally:
-        await model_client.close()  # Always close the client to clean up connections
+    # Init LLM
+    llm = AzureChatOpenAI(
+        openai_api_key=app_settings.azure_openai.key, # type: ignore
+        azure_endpoint=app_settings.azure_openai.endpoint,
+        deployment_name=app_settings.azure_openai.model, # type: ignore
+        openai_api_version=app_settings.azure_openai.preview_api_version, # type: ignore
+        temperature=0
+    )
+
+    # Agent setup
+    agent = initialize_agent(
+        tools=[generate_title],
+        llm=llm,
+        agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
+        verbose=True
+    )
+
+    # Ask agent to use tool to generate title
+    result = await agent.ainvoke("Summarize this conversation into a short title:\n" + conversation) # type: ignore
+
+    return result["output"]
 
 app = create_app()
 

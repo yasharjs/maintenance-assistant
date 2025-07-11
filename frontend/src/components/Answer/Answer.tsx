@@ -23,9 +23,10 @@ interface Props {
   answer: AskResponse
   onCitationClicked: (citedDocument: Citation) => void
   onExectResultClicked: (answerId: string) => void
+  onCitationListClicked?: (list: Citation[]) => void
 }
 
-export const Answer = ({ answer, onCitationClicked, onExectResultClicked }: Props) => {
+export const Answer = ({ answer, onCitationClicked, onExectResultClicked,onCitationListClicked }: Props) => {
   const initializeAnswerFeedback = (answer: AskResponse) => {
     if (answer.message_id == undefined) return undefined
     if (answer.feedback == undefined) return undefined
@@ -251,6 +252,20 @@ export const Answer = ({ answer, onCitationClicked, onExectResultClicked }: Prop
       )
     }
   }
+  // ---------- Markdown table renderers ----------
+  const tableComponents = {
+  table: ({ node, ...props }: any) => <table className={styles.mdTable} {...props} />,
+  thead: ({ node, ...props }: any) => <thead className={styles.mdThead} {...props} />,
+  tbody: ({ node, ...props }: any) => <tbody {...props} />,
+  tr:    ({ node, ...props }: any) => <tr   className={styles.mdTr} {...props} />,
+  th:    ({ node, ...props }: any) => <th   className={styles.mdTh} {...props} />,
+  td:    ({ node, ...props }: any) => <td   className={styles.mdTd} {...props} />,
+}
+
+// merge our code-block renderer with the new table renderers
+const mdComponents = { ...components, ...tableComponents }
+// -----------------------------------------------
+
   return (
     <>
       <Stack className={styles.answerContainer} tabIndex={0}>
@@ -266,7 +281,7 @@ export const Answer = ({ answer, onCitationClicked, onExectResultClicked }: Prop
                     : parsedAnswer?.markdownFormatText
                 }
                 className={styles.answerText}
-                components={components}
+                components={mdComponents}
               />}
             </Stack.Item>
             <Stack.Item className={styles.answerHeader}>
@@ -319,31 +334,31 @@ export const Answer = ({ answer, onCitationClicked, onExectResultClicked }: Prop
               </TooltipHost>
             </Stack>
           )}
-          {!!parsedAnswer?.citations.length && (
-            <Stack.Item onKeyDown={e => (e.key === 'Enter' || e.key === ' ' ? toggleIsRefAccordionOpen() : null)}>
+            {answer.citations && answer.citations.length > 0 && (
+            <Stack.Item>
               <Stack style={{ width: '100%' }}>
                 <Stack horizontal horizontalAlign="start" verticalAlign="center">
                   <Text
                     className={styles.accordionTitle}
-                    onClick={toggleIsRefAccordionOpen}
+                    onClick={() => onCitationListClicked?.(answer.citations)}
                     aria-label="Open references"
                     tabIndex={0}
                     role="button">
                     <span>
-                      {parsedAnswer.citations.length > 1
-                        ? parsedAnswer.citations.length + ' references'
-                        : '1 reference'}
+                      {answer.citations.length > 1
+                        ?  `${answer.citations.length} references found`
+                        : '1 reference found'}
                     </span>
                   </Text>
                   <FontIcon
                     className={styles.accordionIcon}
-                    onClick={handleChevronClick}
+                    onClick={() => onCitationListClicked?.(answer.citations)}
                     iconName={chevronIsExpanded ? 'ChevronDown' : 'ChevronRight'}
                   />
                 </Stack>
               </Stack>
             </Stack.Item>
-          )}
+  )}
 
           {!!answer.exec_results?.length && (
             <Stack.Item onKeyDown={e => (e.key === 'Enter' || e.key === ' ' ? toggleIsRefAccordionOpen() : null)}>
@@ -371,7 +386,7 @@ export const Answer = ({ answer, onCitationClicked, onExectResultClicked }: Prop
         </Stack>
         {chevronIsExpanded && (
           <div className={styles.citationWrapper}>
-            {parsedAnswer?.citations.map((citation, idx) => {
+            {answer.citations.map((citation, idx) => {
               return (
                 <span
                   title={createCitationFilepath(citation, ++idx)}

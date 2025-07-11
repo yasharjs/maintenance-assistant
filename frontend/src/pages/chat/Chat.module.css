@@ -47,7 +47,7 @@
   align-items: flex-end;
   text-align: center;
   line-height: 24px;
-  margin-top: 36px;
+  margin-top: 0px;
   margin-bottom: 0px;
 }
 
@@ -64,7 +64,7 @@
 }
 
 .chatIcon {
-  height: 150px;
+  height: 250px;
   width: auto;
 }
 
@@ -285,9 +285,9 @@
 }
 
 .citationPanelHeader {
-  font-style: normal;
+  font-style: bold;
   font-weight: 600;
-  font-size: 18px;
+  font-size: 20px;
   line-height: 24px;
   color: #000000;
   flex: none;
