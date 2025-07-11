@@ -19,6 +19,17 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain.chains import LLMChain    
 from langchain.utils.math import cosine_similarity
 
+from langsmith import traceable
+from langsmith import trace
+import os
+
+os.environ["LANGCHAIN_TRACING_V2"] = "true"
+os.environ["LANGSMITH_API_KEY"] = "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"
+os.environ["LANGSMITH_PROJECT"] = "testing-rag"
+os.environ["LANGSMITH_ENDPOINT"] = "https://api.smith.langchain.com"
+
+
+
 toc="""
 | Pg# | Item / Revision | Description                           | Dwg / Revision |
 |-----|-----------------|---------------------------------------|----------------|
@@ -133,8 +144,6 @@ llm = AzureChatOpenAI(
     max_tokens=1536,
 )
 
-
-
 multi_route_prompt = ChatPromptTemplate.from_messages([
     ("system",
      "You are a routing assistant. Choose ONE category for the user’s intent:\n"
@@ -144,10 +153,8 @@ multi_route_prompt = ChatPromptTemplate.from_messages([
      "Respond with ONLY: mechanical_drawing, troubleshooting, or general."),
     ("human", "History:\n{history}\n\nUser Question:\n{query}")
 ])
-route_classifier_chain = LLMChain(llm=llm, prompt=multi_route_prompt)
-
+route_classifier_chain = LLMChain(llm=llm,prompt=multi_route_prompt)
 SIMILARITY_THRESHOLD = 0.65   # keep tuning as you wish
-
 def hybrid_router(user_query: str, chat_history_str: str = "") -> str:
     query_embedding = azure_embeddings.embed_query(user_query)
     similarities    = cosine_similarity([query_embedding], route_embeddings)[0]
@@ -171,7 +178,6 @@ CONTAINER = "pages"
 AZURE_SEARCH_ENDPOINT = "https://aisearchdocumentrag.search.windows.net"
 AZURE_SEARCH_KEY      = "ICtH96hEtsivtOz4ug0nP1hUfuw5sMfoCbHAP9ARnRAzSeDt7Z0m" 
 index_name: str = "pdfs"
-
 client = SearchClient(
     endpoint=AZURE_SEARCH_ENDPOINT,
     index_name=index_name,
@@ -224,10 +230,19 @@ azure_embeddings = AzureOpenAIEmbeddings(
 )
 
 routing_descriptions = {
-    "mechanical_drawing": "For technical questions about part numbers, mechanical drawings, CAD references, or BOM entries.",
-    "troubleshooting": "For hydraulic faults, alarm codes, servo valves, wiring, pumps, and VT5041 amplifier issues.",
-    "general": "For greetings, non-technical questions, or general support."
+    "mechanical_drawing": (
+        "Use this route for requests involving diagram illustrations, CAD drawings, Bill of Materials (BOM), part numbers, component revisions, or specific references to page numbers in technical drawing packages. "
+        "Examples include: locating a valve in the drawing set, identifying a drawing number, or asking for part compatibility across revisions."
+    ),
+    "troubleshooting": (
+        "Use this route for technical issues, alarms, calibration steps, electrical or hydraulic faults, and setup procedures. "
+        "Covers questions about Moog servo valves, Rexroth A10V/A4V pumps, VT5041 amplifier cards, wiring diagnostics, pressure readings, jumper settings, breakout box measurements, or tuning instructions."
+    ),
+    "general": (
+        "Use this route for greetings, questions unrelated to machinery or setup, or vague/general inquiries not referring to part drawings or faults. "
+    )
 }
+
 
 # Prepare text and keys
 route_texts = list(routing_descriptions.values())
@@ -249,7 +264,7 @@ vectorstore = AzureSearch(
 
 retriever = vectorstore.as_retriever(
     search_type="hybrid",
-    k=10,              # was 6
+    k=6,              # was 10
   
 )
 
@@ -307,7 +322,7 @@ def build_prompt(kwargs):
         • If a user asks about test points, voltages, jumper settings, or pin numbers, respond with the exact values from the documentation.
         • When referencing tabular data (voltages, jumper settings, resistance values, etc.), use a **GitHub-Flavored Markdown table** with pipes (`|`) and dashes (`-`). Do NOT use code fences or bullet lists.
         • Do NOT reorder, omit, or paraphrase data from any table.
-        • If giving step-by-step instructions, use a numbered list and quote the document exactly when possible.
+        • If giving step-by-step instructions, use a numbered list.
         • When referring to measurement procedures, safety steps, or tools (e.g. breakout box, multimeter, jumper plug), mention specific document-based terminology and steps.
 
         Example table:
@@ -330,17 +345,17 @@ def build_prompt(kwargs):
     else:
         system_rules =  (
         "You are a technical assistant that answers questions based on mechanical drawings and Bill of Materials (BOM) data.\n"
-        "Use the provided context (including component descriptions, drawing references, and part numbers) to give clear and accurate responses.\n"
+        "Use the provided context (including drawing references, and part numbers) to give clear and accurate responses.\n"
         "- Tell the user: \"You can view the corresponding drawings by viewing the mechanical parts below.\"\n"
         "- End with: \"Feel free to ask any follow-up questions if you need more details or clarification.\"\n"
         "- Summarize where the user can find relevant drawings or BOM entries (based on the context).\n"
         )
         for url in ctx["images"]:
-            blocks.append({"type": "image_url", "image_url": {"url": url}})
+            blocks.append({"type": "image_url", "image_url": {"url": url}}) # type: ignore
 
     return ChatPromptTemplate.from_messages([
         SystemMessage(content=system_rules),
-        HumanMessage(content=blocks),
+        HumanMessage(content=blocks), # type: ignore
     ])
 
 
@@ -387,13 +402,20 @@ query_rewrite_prompt = ChatPromptTemplate.from_messages([
     # ---- SYSTEM ---------------------------------------------------
     ("system",
      "You are a **query-rewriter**.  You never answer questions.\n"
-     "GOAL → Produce ONE LINE (≤25 words) that is an optimized, standalone search query.\n"
+     "GOAL → Produce ONE LINE (≤25 words) that is an optimized, standalone search query using clear, keyword-rich language, while preserving the original intent and goal of the user.\n"
      "HOW →\n"
      "• Use the CURRENT_QUESTION plus any missing subject words from RECENT_HISTORY.\n"
      "• Keep all technical terms verbatim (± Vdc, Pin 3, enable signal, etc.).\n"
      "• Do NOT add analogies, definitions, or explanations.\n"
      "• Do NOT answer the question.\n"
      "• Return *only* the rewritten query text, no punctuation before/after, no extra lines.\n"
+     "**Strict Instructions:**\n"
+         "- Do NOT remove any critical keywords present in the original query.\n"
+         "- Do NOT add speculative content or terms not found in the original query unless they are synonymous technical equivalents.\n"
+         "- Do NOT rephrase into vague or general language — be specific and precise.\n"
+         "- Do NOT include any greetings, explanations, or formatting. Return only the rewritten query text.\n"
+        "- Do NOT use any special characters, emojis, or formatting like bold/italics.\n"
+         "- You MAY include intent modifiers like 'for beginners', 'like a 5 year old', or 'for experts' **if they are clearly part of the user’s query or style request."
     ),
     # ---- FEW-SHOT EXAMPLES ----------------------------------------
     # ❶ follow-up without subject
@@ -401,38 +423,29 @@ query_rewrite_prompt = ChatPromptTemplate.from_messages([
     ("assistant", "importance of enable signal voltage range Moog servo valve breakout box"),
     # ❷ “explain like 5” request
     ("human", "RECENT_HISTORY:\nUser: How does a servo valve control flow?\nAssistant: …\n\nCURRENT_QUESTION:\nExplain it like I'm 5"),
-    ("assistant", "servo valve flow control principle electrohydraulic mechanism explanation"),
+    ("assistant", "servo valve flow control principle electrohydraulic mechanism explanation like a 5 year old"),
+
+    ("human", "CURRENT_QUESTION: what's a hydraulic pump do in kid language?"),
+    ("assistant", "hydraulic pump basic function explanation like a 5 year old"),
+
+    ("human", "CURRENT_QUESTION: explain A10V pump to a junior technician"),
+    ("assistant", "A10V hydraulic pump function explained for junior technician"),
+
+    ("human", "CURRENT_QUESTION: explain directional valve in simple terms"),
+    ("assistant", "directional valve purpose and operation simple explanation for beginners"),
+
     # ---- REAL-TIME SLOT -------------------------------------------
     ("human",
      "RECENT_HISTORY:\n{history}\n\nCURRENT_QUESTION:\n{query}")
 ])
 
-    # 2. Choose query rewrite prompt based on type
-# query_rewrite_prompt = ChatPromptTemplate.from_messages([
-#         ("system",
-#         "You are a query rewriting assistant for a Retrieval-Augmented Generation (RAG) system.\n"
-#         "\n"
-#         "Your job is to rewrite the user query using clear, formal, keyword-rich language, while preserving the original intent.\n"
-#         "Focus on improving the query so it matches relevant documents in a technical maintenance corpus.\n"
-#         "\n"
-#         "**Strict Instructions:**\n"
-#         "- Do NOT remove any critical keywords present in the original query.\n"
-#         "- Do NOT add speculative content or terms not found in the original query unless they are synonymous technical equivalents.\n"
-#         "- Do NOT rephrase into vague or general language — be specific and precise.\n"
-#         "- Do NOT include any greetings, explanations, or formatting. Return only the rewritten query text.\n"
-#         "- Avoid unnecessary verbosity. The output should be concise, technically rich, and to the point.\n"
-#         "\n"
-#         "**Context:**\n{history}\n"),
-        
-#         ("user", "{query}")
-#     ])
-query_rewrite_chain = LLMChain(llm=llm, prompt=query_rewrite_prompt)
+query_rewrite_chain = LLMChain(llm=llm,prompt=query_rewrite_prompt)
 
 async def rewrite_query(user_query: str, history: str) -> str:
     """Return an LLM-rewritten version of `user_query`."""
     return await query_rewrite_chain.apredict(query=user_query, history=history)
 
-
+@traceable
 async def run_test_rag(chat_history: list, user_query: str, forced_route: str | None = None):
     global history_text                         # let build_prompt see the update
     history_text = ""
@@ -497,25 +510,26 @@ async def run_test_rag(chat_history: list, user_query: str, forced_route: str | 
 
     # ──  Stream response and collect answer text ───────────────────────────────
 
-    async for chunk in chain.astream(user_query):
-        token = chunk.content
-        if token:
-            yield SimpleNamespace(
-                id=str(uuid.uuid4()),
-                object="chat.completion.chunk",
-                model="gpt-4o",
-                created=int(time.time()),
-                choices=[
-                    SimpleNamespace(
-                        index=0,
-                        delta=SimpleNamespace(
-                            role="assistant",
-                            content=token,
-                            tool_calls=None
+    async with trace(name="test-rag-response"):
+        async for chunk in chain.astream(user_query):
+            token = chunk.content
+            if token:
+                yield SimpleNamespace(
+                    id=str(uuid.uuid4()),
+                    object="chat.completion.chunk",
+                    model="gpt-4o",
+                    created=int(time.time()),
+                    choices=[
+                        SimpleNamespace(
+                            index=0,
+                            delta=SimpleNamespace(
+                                role="assistant",
+                                content=token,
+                                tool_calls=None
+                            )
                         )
-                    )
-                ]
-            )
+                    ]
+                )
 
     yield SimpleNamespace(
         id=str(uuid.uuid4()),

@@ -1018,7 +1018,7 @@ const Chat = () => {
                 horizontalAlign="space-between"
                 verticalAlign="center">
                 <span aria-label="Source Pages" className={styles.citationPanelHeader}>
-                  Machine Parts
+                  References
                 </span>
                 <IconButton
                   iconProps={{ iconName: 'Cancel' }}
@@ -1031,7 +1031,7 @@ const Chat = () => {
                 {(activeCitations.length > 0 ? activeCitations : [activeCitation!]).map((c, idx) => (
                   <div key={idx} style={{ marginBottom: 24 }}>
                     {/* Show the page (from title) */}
-                    <div style={{ fontWeight: 'bold', marginBottom: 4, fontSize: 18 }}>
+                    <div style={{marginBottom: 4, fontSize: 18 }}>
                       {c.title}
                     </div>
                     {/* Show the image preview */}
@@ -1056,7 +1056,8 @@ const Chat = () => {
                             border: "1px solid #ccc",
                             borderRadius: 4,
                             display: "block",
-                            marginBottom: 8
+                            marginBottom: 8,
+                            marginTop: 8,
                           }}
                         />
                       </a>

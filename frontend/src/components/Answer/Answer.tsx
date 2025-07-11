@@ -341,13 +341,13 @@ const mdComponents = { ...components, ...tableComponents }
                   <Text
                     className={styles.accordionTitle}
                     onClick={() => onCitationListClicked?.(answer.citations)}
-                    aria-label="Open machine parts"
+                    aria-label="Open references"
                     tabIndex={0}
                     role="button">
                     <span>
                       {answer.citations.length > 1
-                        ?  `${answer.citations.length} machine parts`
-                        : '1 machine part'}
+                        ?  `${answer.citations.length} references found`
+                        : '1 reference found'}
                     </span>
                   </Text>
                   <FontIcon

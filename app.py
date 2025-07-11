@@ -43,6 +43,13 @@ from langchain_core.tools import tool
 from langchain.chains   import LLMChain
 from backend.rag.test_rag import run_test_rag
 from langchain.schema import HumanMessage, AIMessage
+from langsmith import traceable
+import os
+
+os.environ["LANGCHAIN_TRACING_V2"] = "true"
+os.environ["LANGSMITH_API_KEY"] = "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"
+os.environ["LANGSMITH_PROJECT"] = "testing-rag"
+os.environ["LANGSMITH_ENDPOINT"] = "https://api.smith.langchain.com"
 
 # Defines a modular route group with access to static files for UI rendering
 bp = Blueprint("routes", __name__, static_folder="static", template_folder="static")
@@ -169,7 +176,7 @@ async def init_cosmosdb_client():
 
     return cosmos_conversation_client
 
-from backend.rag.test_rag import hybrid_router, llm, rewrite_query
+from backend.rag.test_rag import hybrid_router, llm, rewrite_query 
 MAX_PAIRS_FOR_ROUTER = 3       # tune between 2-4
 
 def build_router_input(chat_history: list):
@@ -179,6 +186,7 @@ def build_router_input(chat_history: list):
         parts.append(f"{role}: {m.content}")
     return "\n".join(parts)
 
+@traceable
 async def smart_run(chat_history: list, user_query: str):
     """Decides RAG or direct chat."""
     chat_history_str = build_router_input(chat_history)
