@@ -289,16 +289,16 @@ try:
 except ResourceExistsError:
     pass  
 
-CONTAINER_SAS = generate_container_sas(
-    account_name   = AZURE_STORAGE_ACCOUNT,
-    container_name = CONTAINER,
-    account_key    = AZURE_STORAGE_KEY,
-    permission     = ContainerSasPermissions(read=True),   # no 'list'
-    expiry         = datetime.now(timezone.utc) + timedelta(days=1),
-)
+def get_fresh_sas_token():
+    return generate_container_sas(
+        account_name=AZURE_STORAGE_ACCOUNT,
+        container_name=CONTAINER,
+        account_key=AZURE_STORAGE_KEY,
+        permission=ContainerSasPermissions(read=True),
+        expiry=datetime.now(timezone.utc) + timedelta(minutes=60),
+    )
 #images folder path
 IMAGES_DIR   = "images_pump" 
-CONTAINER_SAS = f"{CONTAINER_SAS}"
 INDEX_NAME            = "pages"                      # all lower-case
 EMBED_DIM             = 1536  
 VECTOR_FIELD    = "content_vector"
@@ -400,9 +400,10 @@ query_rewrite_chain = LLMChain(llm=llm,prompt=query_rewrite_prompt)
 
 # ── Helper to convert blob name to URL ────────────────────────────────────────────────
 def url_from_blob(blob_name: str) -> str:
+    sas_token = get_fresh_sas_token()
     return (
         f"https://{AZURE_STORAGE_ACCOUNT}.blob.core.windows.net/"
-        f"{CONTAINER}/{blob_name}?{CONTAINER_SAS}"
+        f"{CONTAINER}/{blob_name}?{sas_token}"
     )
 
 # ── Hybrid routing function ────────────────────────────────────────────────────────────────
@@ -661,4 +662,4 @@ async def run_test_rag(chat_history: list, user_query: str, forced_route: str | 
             )
         ],
         citations=citations
-    )   
+    )
