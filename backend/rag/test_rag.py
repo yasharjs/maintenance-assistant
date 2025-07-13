@@ -295,7 +295,7 @@ def get_fresh_sas_token():
         container_name=CONTAINER,
         account_key=AZURE_STORAGE_KEY,
         permission=ContainerSasPermissions(read=True),
-        expiry=datetime.now(timezone.utc) + timedelta(minutes=2),
+        expiry=datetime.now(timezone.utc) + timedelta(minutes=60),
     )
 #images folder path
 IMAGES_DIR   = "images_pump" 
