@@ -28,6 +28,7 @@ os.environ["LANGSMITH_API_KEY"] = "lsv2_pt_e0ed70e1b3a040299ccb3bda03d964fa_1b7e
 os.environ["LANGSMITH_PROJECT"] = "testing-rag"
 os.environ["LANGSMITH_ENDPOINT"] = "https://api.smith.langchain.com"
 
+#hello
 
 
 toc="""
