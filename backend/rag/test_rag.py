@@ -320,15 +320,15 @@ azure_embeddings = AzureOpenAIEmbeddings(
 # ── Prepare routing descriptions ────────────────────────────────────────
 routing_descriptions = {
     "mechanical_drawing": (
-        "Use this route for requests involving diagram illustrations, CAD drawings, Bill of Materials (BOM), part numbers, component revisions, or specific references to page numbers in technical drawing packages. "
+        "Use this route for requests involving diagram illustrations, CAD drawings, Bill of Materials (BOM), part numbers, component revisions, or specific references to page numbers in technical mechanical drawing packages. "
         "Examples include: locating a valve in the drawing set, identifying a drawing number, or asking for part compatibility across revisions."
     ),
     "troubleshooting": (
-        "Use this route for technical issues, alarms, calibration steps, electrical or hydraulic faults, and setup procedures. "
+        "Use this route for technical issues, alarms, calibration steps, electrical or  faults, and setup procedures. "
         "Covers questions about Moog servo valves, Rexroth A10V/A4V pumps, VT5041 amplifier cards, wiring diagnostics, pressure readings, jumper settings, breakout box measurements, or tuning instructions."
     ),
     "general": (
-        "Use this route for greetings, questions unrelated to machinery or setup, or vague/general inquiries not referring to part drawings or faults. "
+        "Use this route for greetings, questions unrelated to machinery or setup, or vague/general inquiries"
     )
 }
 
@@ -414,6 +414,7 @@ def hybrid_router(user_query: str, chat_history_str: str = "") -> str:
     best_index      = int(similarities.argmax())
     best_score      = similarities[best_index]
 
+    print("BEST SCORE:", best_score)
     if best_score >= SIMILARITY_THRESHOLD:
         return route_keys[best_index]   
 
@@ -467,36 +468,20 @@ def build_prompt(kwargs):
     
     if not is_drawing_query:
         system_rules = (
-        "You are an industrial maintenance assistant. "
-        "• Put any tabular data inside a fenced Markdown table. "
-        """You are an industrial maintenance assistant for hydraulic and servo-controlled machines, including Husky G-Line, Hylectric, HyPET, and Quadloc models. You help users troubleshoot issues with Rexroth A10V/A4V pumps, VT5041 amplifier cards, Moog servo valves, and associated control systems.
+        "The Maintenance Assistant agent supports maintenance technicians of all experience levels in troubleshooting and learning how to operate and maintain Husky HyPET, Hylectric, and Quadloc machines. It acts as a 24/7 assistant to help workers diagnose machine issues, follow proper maintenance procedures, and build skills over time. The agent serves two primary functions: real-time troubleshooting and on-demand training. It guides technicians through diagnosing faults, alarms, and error codes using simple step-by-step instructions, helps identify root causes, recommends corrective actions, lists necessary parts or tools, and flags safety concerns. It also offers bite-sized lessons tailored by machine type and user skill level, covering daily checks, startup and shutdown sequences, component replacement, and subsystem functions. General instructions - Guide technicians through diagnosing faults, alarms, and error codes on Husky HyPET, Hylectric, and Quadloc machines by providing structured, step-by-step diagnostic workflows based on official service procedures. - Assist technicians of all experience levels by offering precise and easy-to-follow guidance. - For servo valve issues, walk users through identifying specific fault types, explaining alarm logic, and guiding users to measure voltages using a Moog breakout box. - Help verify signals like command (Pin 4), feedback (Pin 6), and valve enable (Pin 3), and identify whether signals fall within expected ranges. - Walk through safety window logic, spool centering checks, and signal integrity tests to determine root causes. - For Rexroth Master/Slave pumps, support the technician in confirming jumper settings and calibrating swashplate angles using test point measurements on the VT5041 amplifier card. - Help set and verify system pressure, swashplate angles, and voltage values, and recommend adjustments to resistors as needed. - List corrective actions clearly, including part numbers, wiring checks, and recommendations for replacing faulty components. - Identify required tools and emphasize safety warnings. - Make the process interactive, guiding users step by step, listing common root causes, and offering clear corrective action paths for each scenario. Clarification and guidance behavior - Always follow up your responses with a supportive and helpful question. - If the user's question is vague or lacks detail, ask for clarification or extra context to ensure accurate support. - If the user's input is already clear, offer additional guidance, explanation, or training to deepen understanding. - Use a warm, professional tone. Keep questions focused on helping the technician progress or avoid confusion. - Avoid making assumptions. Ask only one clear, helpful question at the end of each reply. - If you must make any assumptions in order to answer the question, clearly state what those assumptions are. - When referencing information from documents, indicate what was found in the documents and what was not. Be transparent about the source and scope of your knowledge."
 
-        Your answers must be clear, factual, helpful, and always based strictly on the context provided. Do not guess or make assumptions. If any required information is missing from the documents, respond with: "I do not have that information in the current context. Please provide more detail."
+        "Technical formatting rules: "
+        "• Do NOT summarize, paraphrase, or reword numerical values (voltages, calibration, jumpers). Repeat them exactly. "
+        "• When referencing data (voltages, jumper settings, resistance, etc.), present it in a **GitHub-Flavored Markdown table** using pipes (`|`) and dashes (`-`). "
+        "• Do NOT use code fences, bullet points, or reorder data from tables. "
+        "• Use numbered lists for step-by-step procedures. "
+        "• Mention specific tools and procedures from the documents (e.g., breakout box, multimeter, jumper plug, swashplate calibration, Moog VT5041 signals). "
+        "• For servo valves, guide users through command (Pin 4), feedback (Pin 6), and valve enable (Pin 3) checks, and confirm values using Moog breakout box. "
+        "• For Rexroth pumps, help confirm jumper settings and measure swashplate angles using test points on the VT5041 card. "
 
-        Rules:
-        • Always verify and fact-check your answer against the provided technical documentation before responding.
-        • If unsure or ambiguous, ask the user for clarification instead of assuming intent.
-        • Do NOT summarize or reword numerical or calibration values. Repeat them exactly as shown.
-        • If a user asks about test points, voltages, jumper settings, or pin numbers, respond with the exact values from the documentation.
-        • When referencing tabular data (voltages, jumper settings, resistance values, etc.), use a **GitHub-Flavored Markdown table** with pipes (`|`) and dashes (`-`). Do NOT use code fences or bullet lists.
-        • Do NOT reorder, omit, or paraphrase data from any table.
-        • If giving step-by-step instructions, use a numbered list.
-        • When referring to measurement procedures, safety steps, or tools (e.g. breakout box, multimeter, jumper plug), mention specific document-based terminology and steps.
+  
 
-        Example table:
-        | Pin | Signal               | Voltage       |
-        |-----|----------------------|---------------|
-        | 1   | Pressure Command     | +8.0V         |
-        | 4   | Swivel Angle         | +9.9V (±0.1V) |
-
-        Always prioritize precision over brevity. If multiple procedures apply, summarize each clearly and label them (e.g., "Step 4.1 – A10VFE1 Pumps", "Section 2.2.3 – Servo Valve Opening Negative Fault").
-
-        Never speculate. If the query is vague, say: "Can you clarify the exact machine, card type, or valve you're referring to?"
-
-        Be professional, clear, and accurate.
-            
-            """       
-        )
+    )
         # Passing images to LLM for non mechanical drawing documents
         # for url in ctx["images"]:
         #     blocks.append({"type": "image_url", "image_url": {"url": url}})
@@ -588,13 +573,11 @@ async def run_test_rag(chat_history: list, user_query: str, forced_route: str | 
             "\n"
             "Your task is to:\n"
             "1. Find the **first** BOM entry whose description matches the user query.\n"
-            "2. Return all **contiguous page numbers** starting from that entry's BOM page (first column),\n"
-            "   up to but **not including** the BOM page of the next entry in the table.\n"
-            "\n"
+            "2. Return the **page number** from that entry’s BOM page (first column),\n"
             "If you can NOT find a matching entry, return an empty string.\n"
-            "Only return a **comma-separated list of page numbers NO WORDS, PAGE NUMBERS ONLY**.\n"
+            "Only return a **comma-separated list of page numbers, NO WORDS, PAGE NUMBERS ONLY**.\n"
             "Do NOT include any drawing numbers or part numbers.\n"
-            "Do NOT include multiple matching entries — only the **first match**.\n"
+            "Return ONLY the first matching page number up to but **NOT INCLUDING** the next BOM entry. Ignore all later entries, even if they match.\n"
             "Do NOT guess or invent page numbers.\n"
             "Use only the page numbers found in the first column of the table.\n"),
             ("human", "TOC:\n\n{toc}\n\nQuery:\n{query}")
@@ -602,8 +585,25 @@ async def run_test_rag(chat_history: list, user_query: str, forced_route: str | 
         page_lookup_chain = LLMChain(llm=llm, prompt=page_lookup_prompt)
         page_result = await page_lookup_chain.apredict(toc=toc, query= user_query)
         print(f"📄 Page prediction result: {page_result}")
-        page_numbers = _parse_page_numbers(page_result) 
-        toc_ids = [f"Husky_2_Mechanical_Drawing_Package-p{p}" for p in page_numbers]
+        # Step 1: Get all valid BOM page numbers from the TOC
+        valid_bom_pages = _parse_page_numbers(toc)
+
+        # Step 2: Get the first matched page from LLM
+        page_numbers = _parse_page_numbers(page_result)
+        if not page_numbers:
+            toc_ids = []
+        else:
+            first_page = page_numbers[0]
+
+            # Step 3: Find next BOM page after the match
+            following_pages = [p for p in valid_bom_pages if p > first_page]
+            next_bom_page = min(following_pages) if following_pages else None
+
+            # Step 4: Generate page range
+            final_pages = list(range(first_page, next_bom_page)) if next_bom_page else [first_page]
+
+            # Step 5: Convert to doc IDs
+            toc_ids = [f"Husky_2_Mechanical_Drawing_Package-p{p}" for p in final_pages]
         for doc_id in toc_ids:
             raw = client.get_document(key=doc_id)   # ➜ dict
             hits.append(to_lc_doc(raw)) 
