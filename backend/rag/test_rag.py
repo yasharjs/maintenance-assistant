@@ -244,7 +244,7 @@ toc="""
 | 553 | 3581644/1       | O Ring Spares KIT                     |                |
 """
 llm = AzureChatOpenAI(
-    openai_api_version="2024-05-01-preview",  # or your deployed version # type: ignore
+    openai_api_version="2024-08-01-preview",  # or your deployed version # type: ignore
     azure_deployment="gpt-4o",
     azure_endpoint="https://conta-m9prji51-eastus2.services.ai.azure.com",
     openai_api_key="9RSNCLiFqvGuUVCxVF1CsmDTLNBkHpX1P1jfMsxGMxqR2ES2wCy8JQQJ99BDACHYHv6XJ3w3AAAAACOGSc3o", # type: ignore
@@ -263,7 +263,7 @@ multi_route_prompt = ChatPromptTemplate.from_messages([
     ("human", "History:\n{history}\n\nUser Question:\n{query}")
 ])
 route_classifier_chain = LLMChain(llm=llm,prompt=multi_route_prompt)
-SIMILARITY_THRESHOLD = 0.65   # keep tuning as you wish
+SIMILARITY_THRESHOLD = 0.80   # keep tuning as you wish
 
 
 
@@ -398,6 +398,11 @@ query_rewrite_prompt = ChatPromptTemplate.from_messages([
 ])
 query_rewrite_chain = LLMChain(llm=llm,prompt=query_rewrite_prompt)
 
+# ── QUERY-REWRITE HELPER ────────────────────────────────────────────────────
+async def rewrite_query(user_query: str, history: str) -> str:
+    """Return an LLM-rewritten version of `user_query`."""
+    return await query_rewrite_chain.apredict(query=user_query, history=history)
+
 # ── Helper to convert blob name to URL ────────────────────────────────────────────────
 def url_from_blob(blob_name: str) -> str:
     sas_token = get_fresh_sas_token()
@@ -405,23 +410,6 @@ def url_from_blob(blob_name: str) -> str:
         f"https://{AZURE_STORAGE_ACCOUNT}.blob.core.windows.net/"
         f"{CONTAINER}/{blob_name}?{sas_token}"
     )
-
-# ── Hybrid routing function ────────────────────────────────────────────────────────────────
-def hybrid_router(user_query: str, chat_history_str: str = "") -> str:
-    query_embedding = azure_embeddings.embed_query(user_query)
-    similarities    = cosine_similarity([query_embedding], route_embeddings)[0]
-    best_index      = int(similarities.argmax())
-    best_score      = similarities[best_index]
-
-    if best_score >= SIMILARITY_THRESHOLD:
-        return route_keys[best_index]   
-
-    # ── NEW: fallback to 3-class LLM classifier ────────────────────────────
-    llm_route = route_classifier_chain.run(history=chat_history_str, query=user_query)
-    llm_route = llm_route.strip().lower()
-    if llm_route in route_keys:         # sanity-check
-        return llm_route
-    return "general"  
 
 # ── Helper to parse page numbers from LLM text ────────────────────────────────────────────────
 def _parse_page_numbers(raw: str) -> list[int]:
@@ -553,10 +541,6 @@ def to_lc_doc(raw: dict) -> Document:
         metadata=meta,
     )
 
-# ── QUERY-REWRITE HELPER ────────────────────────────────────────────────────
-async def rewrite_query(user_query: str, history: str) -> str:
-    """Return an LLM-rewritten version of `user_query`."""
-    return await query_rewrite_chain.apredict(query=user_query, history=history)
 
 # ── MAIN FUNCTION ────────────────────────────────────────────────────
 @traceable
@@ -567,11 +551,9 @@ async def run_test_rag(chat_history: list, user_query: str, forced_route: str | 
         role = "User" if m.type == "human" else "Assistant"
         history_text += f"{role}: {m.content}\n"
 
-    # 1. Detect if it's a mechanical drawing query (lightweight keyword check)
-    route = forced_route if forced_route else hybrid_router(user_query)
+    route = forced_route
     is_drawing_query = route == "mechanical_drawing"
     print(f"DRAWING QUERY BOOLEAN: {is_drawing_query}")
-
 
     hits = []
     # 4. If drawing-related, predict page from ToC
