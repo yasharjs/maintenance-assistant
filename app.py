@@ -28,6 +28,8 @@ from backend.utils import (
     format_stream_response
 )
 
+from backend.langgraph import query_router_graph
+
 
 from langchain_openai import AzureChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
@@ -39,10 +41,14 @@ from langchain.schema import HumanMessage, AIMessage
 from langsmith import traceable
 import os
 
-os.environ["LANGCHAIN_TRACING_V2"] = "true"
-os.environ["LANGSMITH_API_KEY"] = "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"
-os.environ["LANGSMITH_PROJECT"] = "testing-rag"
-os.environ["LANGSMITH_ENDPOINT"] = "https://api.smith.langchain.com"
+# Set environment variables for LangSmith
+if app_settings.langsmith.api_key:
+    os.environ["LANGSMITH_API_KEY"] = app_settings.langsmith.api_key
+if app_settings.langsmith.project:
+    os.environ["LANGSMITH_PROJECT"] = app_settings.langsmith.project
+if app_settings.langsmith.endpoint:
+    os.environ["LANGSMITH_ENDPOINT"] = app_settings.langsmith.endpoint
+os.environ["LANGCHAIN_TRACING_V2"] = str(app_settings.langsmith.tracing_v2).lower()
 
 # Defines a modular route group with access to static files for UI rendering
 bp = Blueprint("routes", __name__, static_folder="static", template_folder="static")
@@ -169,7 +175,7 @@ async def init_cosmosdb_client():
 
     return cosmos_conversation_client
 
-from backend.rag.test_rag import hybrid_router, llm, rewrite_query 
+from backend.rag.test_rag import llm, rewrite_query 
 MAX_PAIRS_FOR_ROUTER = 3       # tune between 2-4
 
 def build_router_input(chat_history: list):
@@ -177,18 +183,46 @@ def build_router_input(chat_history: list):
     for m in chat_history:
         role = "User" if m.type == "human" else "Assistant"
         parts.append(f"{role}: {m.content}")
-    return "\n".join(parts)
+    return parts
 
 @traceable
 async def smart_run(chat_history: list, user_query: str):
     """Decides RAG or direct chat."""
+
     chat_history_str = build_router_input(chat_history)
+    state = {"messages": chat_history, "route": "", "rewritten": "", "uncertain": False}
+    router_output = query_router_graph.invoke(state)
+
+    # Print graph output to debug
+    print("[ROUTER OUTPUT]")
+    print(router_output)
+
+    chat_history_str = "\n".join(chat_history_str)
     rewritten_query = await rewrite_query(user_query, chat_history_str)
     print(f"[REWRITE] {rewritten_query}")
-    route = hybrid_router(rewritten_query, chat_history_str)
+    route = router_output.get("route", "")
     print(f"[ROUTER] Decided route → {route}")
 
-    if route in ["mechanical_drawing", "troubleshooting"]:
+        # Handle 'uncertain' by streaming the follow-up question
+    if router_output.get("route") == "uncertain":
+        follow_up = router_output["messages"][-1].content
+        yield SimpleNamespace(
+            id=str(uuid.uuid4()),
+            object="chat.completion.chunk",
+            model="gpt-4o",
+            created=int(time.time()),
+            choices=[SimpleNamespace(
+                index=0,
+                delta=SimpleNamespace(
+                    role="assistant",
+                    content=follow_up,
+                    citations=[],
+                    tool_calls=None
+                )
+            )]
+        )
+
+    elif route in ["mechanical_drawing", "troubleshooting"]:
         async for chunk in run_test_rag(chat_history, rewritten_query, forced_route=route):
             yield chunk
     else:
@@ -744,31 +778,6 @@ async def ensure_cosmos():
         else:
             return jsonify({"error": "CosmosDB is not working"}), 500
 
-@tool
-async def generate_title(conversation_messages: str) -> str:
-    """
-    Summarizes a conversation string into a short 4-word title. 
-    Do not use punctuation or quotation marks.
-    """
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", "Summarize the conversation so far into a 4-word or less title. "
-                   "Do not use any quotation marks or punctuation."),
-        ("user", conversation_messages)
-    ])
-
-    llm = AzureChatOpenAI(
-        openai_api_key=app_settings.azure_openai.key, # type: ignore
-        azure_endpoint=app_settings.azure_openai.endpoint,
-        deployment_name=app_settings.azure_openai.model, # type: ignore
-        openai_api_version=app_settings.azure_openai.preview_api_version, # type: ignore
-        temperature=1,
-        max_tokens=20
-    )
-
-    chain = prompt | llm
-    result = await chain.ainvoke({})
-    return result.content.strip()
-
 
 async def run_agent_on_conversation(conversation_messages) -> str:
     # Convert message list to a plain conversation string
@@ -785,18 +794,17 @@ async def run_agent_on_conversation(conversation_messages) -> str:
         temperature=0
     )
 
-    # Agent setup
-    agent = initialize_agent(
-        tools=[generate_title],
-        llm=llm,
-        agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
-        verbose=True
-    )
+   # Build prompt
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", "Summarize the conversation so far into a 4-word or less title. "
+                   "Do not use any quotation marks or punctuation."),
+        ("user", conversation)
+    ])
 
-    # Ask agent to use tool to generate title
-    result = await agent.ainvoke("Summarize this conversation into a short title:\n" + conversation) # type: ignore
-
-    return result["output"]
+    # Generate title
+    chain = prompt | llm
+    result = await chain.ainvoke({})
+    return result.content.strip()
 
 app = create_app()
 

@@ -245,7 +245,7 @@ toc="""
 | 553 | 3581644/1       | O Ring Spares KIT                     |                |
 """
 llm = AzureChatOpenAI(
-    openai_api_version="2024-05-01-preview",  # or your deployed version # type: ignore
+    openai_api_version="2024-08-01-preview",  # or your deployed version # type: ignore
     azure_deployment="gpt-4o",
     azure_endpoint="https://conta-m9prji51-eastus2.services.ai.azure.com",
     openai_api_key="9RSNCLiFqvGuUVCxVF1CsmDTLNBkHpX1P1jfMsxGMxqR2ES2wCy8JQQJ99BDACHYHv6XJ3w3AAAAACOGSc3o", # type: ignore
@@ -264,7 +264,7 @@ multi_route_prompt = ChatPromptTemplate.from_messages([
     ("human", "History:\n{history}\n\nUser Question:\n{query}")
 ])
 route_classifier_chain = LLMChain(llm=llm,prompt=multi_route_prompt)
-SIMILARITY_THRESHOLD = 0.65   # keep tuning as you wish
+SIMILARITY_THRESHOLD = 0.80   # keep tuning as you wish
 
 
 
@@ -320,15 +320,19 @@ azure_embeddings = AzureOpenAIEmbeddings(
 # ── Prepare routing descriptions ────────────────────────────────────────
 routing_descriptions = {
     "mechanical_drawing": (
-        "Use this route for requests involving diagram illustrations, CAD drawings, Bill of Materials (BOM), part numbers, component revisions, or specific references to page numbers in technical mechanical drawing packages. "
-        "Examples include: locating a valve in the drawing set, identifying a drawing number, or asking for part compatibility across revisions."
+        "Use this route **only** for queries involving static documents such as CAD diagrams, blueprint illustrations, BOM tables, part numbers, revision comparisons, or locating items by page number in mechanical drawing sets.\n\n"
+        "Focus is on **visual layout and document structure**, not functional behavior.\n\n"
+        "Examples include: identifying a part's page number, comparing drawing versions (e.g., rev D vs F), locating valve placement on a schematic, or listing components in a BOM table.\n\n"
+        "**Do NOT use this route for operational issues, pressure problems, or electrical faults — even if a part is mentioned.**"
     ),
     "troubleshooting": (
-        "Use this route for technical issues, alarms, calibration steps, electrical or  faults, and setup procedures. "
-        "Covers questions about Moog servo valves, Rexroth A10V/A4V pumps, VT5041 amplifier cards, wiring diagnostics, pressure readings, jumper settings, breakout box measurements, or tuning instructions."
+        "Use this route **only** for queries involving system behavior, diagnostics, calibration, faults, alarms, or performance issues during machine operation.\n\n"
+        "Focus is on **dynamic system function**, real-time problems, or electrical/hydraulic tuning.\n\n"
+        "Examples include: diagnosing Moog servo valve faults, calibrating A10V pump settings, interpreting pressure readings, wiring or jumper configs, VT5041 amplifier tuning, or fixing alarms.\n\n"
+        "**Do NOT use this route if the user is asking to locate parts or compare drawing pages — even if the part is malfunctioning.**"
     ),
     "general": (
-        "Use this route for greetings, questions unrelated to machinery or setup, or vague/general inquiries"
+        "Use this route for greetings, chit-chat, or queries unrelated to machinery, drawings, or diagnostics. This includes vague questions or off-topic requests."
     )
 }
 
@@ -358,29 +362,29 @@ retriever = vectorstore.as_retriever(
 
 # ── Prepare the query-rewrite prompt and chain ────────────────────────────────────────────────
 query_rewrite_prompt = ChatPromptTemplate.from_messages([
-    # ---- SYSTEM ---------------------------------------------------
     ("system",
-     "You are a **query-rewriter**.  You never answer questions.\n"
-     "GOAL → Produce ONE LINE (≤25 words) that is an optimized, standalone search query using clear, keyword-rich language, while preserving the original intent and goal of the user.\n"
-     "HOW →\n"
-     "• Use the CURRENT_QUESTION plus any missing subject words from RECENT_HISTORY.\n"
-     "• Keep all technical terms verbatim (± Vdc, Pin 3, enable signal, etc.).\n"
-     "• Do NOT add analogies, definitions, or explanations.\n"
-     "• Do NOT answer the question.\n"
-     "• Return *only* the rewritten query text, no punctuation before/after, no extra lines.\n"
-     "**Strict Instructions:**\n"
-         "- Do NOT remove any critical keywords present in the original query.\n"
-         "- Do NOT add speculative content or terms not found in the original query unless they are synonymous technical equivalents or found in RECENT_HISTORY.\n"
-         "- Do NOT rephrase into vague or general language — be specific and precise.\n"
-         "- Do NOT include any greetings, explanations, or formatting. Return only the rewritten query text.\n"
-        "- Do NOT use any special characters, emojis, or formatting like bold/italics.\n"
-         "- You MAY include intent modifiers like 'for beginners', 'like a 5 year old', or 'for experts' **if they are clearly part of the user’s query or style request."
+     "**ROLE**: You are a domain-aware, high-precision query rewriter.\n\n"
+     "**OBJECTIVE**: Rewrite the user’s CURRENT_QUESTION into a **standalone**, **keyword-optimized**, ≤25-word search query.\n"
+     "It must preserve original **intent**, use **clear technical language**, and be suited for high-performance retrieval in dense knowledge bases.\n\n"
+     "**METHOD**:\n"
+     "1. Use all relevant technical terms from CURRENT_QUESTION exactly as written.\n"
+     "2. Fill in missing subject context using RECENT_HISTORY, but do not speculate.\n"
+     "3. Output **only one line**: the rewritten query. No punctuation, formatting, or commentary.\n\n"
+     "**STRICT RULES**:\n"
+     "- NEVER answer the question or provide explanations.\n"
+     "- NEVER remove critical keywords from the query.\n"
+     "- NEVER add terms unless they are:\n"
+     "    • Technical synonyms from RECENT_HISTORY\n"
+     "    • Part of clearly implied user style (e.g., 'like a 5 year old', 'for experts')\n"
+     "- NEVER rephrase into vague or generic wording. Retain specificity.\n"
+     "- NEVER use markdown, quotes, symbols, emojis, or sentence-ending punctuation.\n"
+     "- NEVER exceed 25 words.\n"
+     "- ALWAYS resolve co-references (e.g., 'it', 'this part') using RECENT_HISTORY."
     ),
     # ---- FEW-SHOT EXAMPLES ----------------------------------------
-    # ❶ follow-up without subject
     ("human", "RECENT_HISTORY:\nUser: What is the enable signal voltage range?\nAssistant: …\n\nCURRENT_QUESTION:\nWhy is it important?"),
     ("assistant", "importance of enable signal voltage range Moog servo valve breakout box"),
-    # ❷ “explain like 5” request
+
     ("human", "RECENT_HISTORY:\nUser: How does a servo valve control flow?\nAssistant: …\n\nCURRENT_QUESTION:\nExplain it like I'm 5"),
     ("assistant", "servo valve flow control principle electrohydraulic mechanism explanation like a 5 year old"),
 
@@ -393,11 +397,19 @@ query_rewrite_prompt = ChatPromptTemplate.from_messages([
     ("human", "CURRENT_QUESTION: explain directional valve in simple terms"),
     ("assistant", "directional valve purpose and operation simple explanation for beginners"),
 
-    # ---- REAL-TIME SLOT -------------------------------------------
-    ("human",
-     "RECENT_HISTORY:\n{history}\n\nCURRENT_QUESTION:\n{query}")
+    ("human", "CURRENT_QUESTION: show me stroke manifold assembly"),
+    ("assistant", "stroke manifold assembly drawing or diagram"),
+    
+
+    # ---- EXECUTION SLOT -------------------------------------------
+    ("human", "RECENT_HISTORY:\n{history}\n\nCURRENT_QUESTION:\n{query}")
 ])
 query_rewrite_chain = LLMChain(llm=llm,prompt=query_rewrite_prompt)
+
+# ── QUERY-REWRITE HELPER ────────────────────────────────────────────────────
+async def rewrite_query(user_query: str, history: str) -> str:
+    """Return an LLM-rewritten version of `user_query`."""
+    return await query_rewrite_chain.apredict(query=user_query, history=history)
 
 # ── Helper to convert blob name to URL ────────────────────────────────────────────────
 def url_from_blob(blob_name: str) -> str:
@@ -407,23 +419,6 @@ def url_from_blob(blob_name: str) -> str:
         f"{CONTAINER}/{blob_name}?{sas_token}"
     )
 
-# ── Hybrid routing function ────────────────────────────────────────────────────────────────
-def hybrid_router(user_query: str, chat_history_str: str = "") -> str:
-    query_embedding = azure_embeddings.embed_query(user_query)
-    similarities    = cosine_similarity([query_embedding], route_embeddings)[0]
-    best_index      = int(similarities.argmax())
-    best_score      = similarities[best_index]
-
-    print("BEST SCORE:", best_score)
-    if best_score >= SIMILARITY_THRESHOLD:
-        return route_keys[best_index]   
-
-    # ── NEW: fallback to 3-class LLM classifier ────────────────────────────
-    llm_route = route_classifier_chain.run(history=chat_history_str, query=user_query)
-    llm_route = llm_route.strip().lower()
-    if llm_route in route_keys:         # sanity-check
-        return llm_route
-    return "general"  
 
 # ── Helper to parse page numbers from LLM text ────────────────────────────────────────────────
 def _parse_page_numbers(raw: str) -> list[int]:
@@ -539,10 +534,6 @@ def to_lc_doc(raw: dict) -> Document:
         metadata=meta,
     )
 
-# ── QUERY-REWRITE HELPER ────────────────────────────────────────────────────
-async def rewrite_query(user_query: str, history: str) -> str:
-    """Return an LLM-rewritten version of `user_query`."""
-    return await query_rewrite_chain.apredict(query=user_query, history=history)
 
 # ── MAIN FUNCTION ────────────────────────────────────────────────────
 @traceable
@@ -553,11 +544,9 @@ async def run_test_rag(chat_history: list, user_query: str, forced_route: str | 
         role = "User" if m.type == "human" else "Assistant"
         history_text += f"{role}: {m.content}\n"
 
-    # 1. Detect if it's a mechanical drawing query (lightweight keyword check)
-    route = forced_route if forced_route else hybrid_router(user_query)
+    route = forced_route
     is_drawing_query = route == "mechanical_drawing"
     print(f"DRAWING QUERY BOOLEAN: {is_drawing_query}")
-
 
     hits = []
     # 4. If drawing-related, predict page from ToC

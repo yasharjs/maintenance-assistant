@@ -748,6 +748,20 @@ class _MongoDbSettings(BaseSettings, DatasourcePayloadConstructor):
             "type": self._type,
             "parameters": parameters
         }
+    
+
+class _LangsmithSettings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="LANGSMITH_",
+        env_file=DOTENV_PATH,
+        extra="ignore",
+        env_ignore_empty=True
+    )
+
+    api_key: Optional[str] = None
+    project: Optional[str] = None
+    endpoint: Optional[str] = None
+    tracing_v2: bool = Field(default=True, alias="TRACING_V2")
         
         
 class _BaseSettings(BaseSettings):
@@ -773,6 +787,7 @@ class _AppSettings(BaseModel):
     chat_history: Optional[_ChatHistorySettings] = None
     datasource: Optional[DatasourcePayloadConstructor] = None
     promptflow: Optional[_PromptflowSettings] = None
+    langsmith: Optional[_LangsmithSettings] = _LangsmithSettings()
 
     @model_validator(mode="after")
     def set_promptflow_settings(self) -> Self:
