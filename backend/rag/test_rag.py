@@ -419,6 +419,7 @@ def url_from_blob(blob_name: str) -> str:
         f"{CONTAINER}/{blob_name}?{sas_token}"
     )
 
+
 # ── Helper to parse page numbers from LLM text ────────────────────────────────────────────────
 def _parse_page_numbers(raw: str) -> list[int]:
     """Return sorted unique page ints extracted from any LLM text."""
