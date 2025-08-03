@@ -28,6 +28,18 @@ if "%errorlevel%" neq "0" (
     exit /B %errorlevel%
 )
 
+echo.
+echo Copying built frontend to static folder
+echo.
+if not exist "..\static" mkdir "..\static"
+xcopy /S /E /Y "dist\" "..\static\"
+if "%errorlevel%" neq "0" (
+    echo Failed to copy frontend files to static folder
+    exit /B %errorlevel%
+)
+
+ 
+
 echo.    
 echo Starting backend    
 echo.    

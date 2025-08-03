@@ -1,3 +1,5 @@
+/* eslint-disable comma-dangle */
+/* eslint-disable object-curly-newline */
 import React, {
   createContext,
   ReactNode,

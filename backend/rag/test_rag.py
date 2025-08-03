@@ -247,8 +247,8 @@ toc="""
 llm = AzureChatOpenAI(
     openai_api_version="2024-08-01-preview",  # or your deployed version # type: ignore
     azure_deployment="gpt-4o",
-    azure_endpoint="https://conta-m9prji51-eastus2.services.ai.azure.com",
-    openai_api_key="9RSNCLiFqvGuUVCxVF1CsmDTLNBkHpX1P1jfMsxGMxqR2ES2wCy8JQQJ99BDACHYHv6XJ3w3AAAAACOGSc3o", # type: ignore
+    azure_endpoint="https://asavartondrow1-3724-resource.cognitiveservices.azure.com/openai/deployments/gpt-4o/chat/completions?api-version=2025-01-01-preview",
+    openai_api_key="GgAZnxv1JJYwPFuW0msJQd1aWVVTv7vVHjqftjFvBw9utWzQ1fswJQQJ99BGACHYHv6XJ3w3AAAAACOG5wb4", # type: ignore
     temperature=0.0,
     streaming=True,  # enable streaming
     max_tokens=1536,

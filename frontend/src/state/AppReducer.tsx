@@ -1,3 +1,6 @@
+/* eslint-disable object-curly-newline */
+/* eslint-disable indent */
+/* eslint-disable no-case-declarations */
 import { Action, AppState } from './AppProvider'
 
 // Define the reducer function
@@ -16,7 +19,7 @@ export const appStateReducer = (state: AppState, action: Action): AppState => {
       const conversationIndex = state.chatHistory.findIndex(conv => conv.id === action.payload.id)
       if (conversationIndex !== -1) {
         const updatedChatHistory = [...state.chatHistory]
-        updatedChatHistory[conversationIndex] = state.currentChat
+        updatedChatHistory[conversationIndex] = action.payload
         return { ...state, chatHistory: updatedChatHistory }
       } else {
         return { ...state, chatHistory: [...state.chatHistory, action.payload] }
@@ -49,7 +52,7 @@ export const appStateReducer = (state: AppState, action: Action): AppState => {
       return { ...state, chatHistory: [], filteredChatHistory: [], currentChat: null }
     case 'DELETE_CURRENT_CHAT_MESSAGES':
       //TODO: make api call to delete current conversation messages from DB
-      if (!state.currentChat || !state.chatHistory) {
+      if (!state.currentChat) {
         return state
       }
       const updatedCurrentChat = {
