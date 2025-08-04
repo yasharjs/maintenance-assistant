@@ -14,7 +14,7 @@ from quart import (
     render_template,
     current_app,
 )
-from openai import AsyncAzureOpenAI
+
 from azure.identity.aio import (
     DefaultAzureCredential,
 )
@@ -28,15 +28,22 @@ from backend.utils import (
     format_stream_response
 )
 
-from backend.langgraph import query_router_graph
 
+from backend.rag.test_rag import llm
+from langgraph.graph import StateGraph
+# Import troubleshoot graph nodes from custom_langgraph
+from backend.custom_langgraph.troubleshoot_graph import (
+    State,
+    troubleshooting_rewriter,
+    retrieve_node,
+    context_window_node,
+    troubleshooting_final,
+    troubleshooting_evaluator,
+    troubleshooting_streamer
+)
 
 from langchain_openai import AzureChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
-from langchain.agents import initialize_agent
-from langchain.agents.agent_types import AgentType
-from langchain_core.tools import tool
-from backend.rag.test_rag import run_test_rag
 from langchain.schema import HumanMessage, AIMessage
 from langsmith import traceable
 import os
@@ -141,9 +148,6 @@ frontend_settings = {
 MS_DEFENDER_ENABLED = os.environ.get("MS_DEFENDER_ENABLED", "true").lower() == "true"
 
 
-azure_openai_tools = []
-azure_openai_available_tools = []
-
 async def init_cosmosdb_client():
     cosmos_conversation_client = None
     if app_settings.chat_history:
@@ -175,119 +179,98 @@ async def init_cosmosdb_client():
 
     return cosmos_conversation_client
 
-from backend.rag.test_rag import llm, rewrite_query 
-MAX_PAIRS_FOR_ROUTER = 3       # tune between 2-4
+from backend.custom_langgraph.router_graph import router_node
 
-def build_router_input(chat_history: list):
-    parts = []
-    for m in chat_history:
-        role = "User" if m.type == "human" else "Assistant"
-        parts.append(f"{role}: {m.content}")
-    return parts
+def build_graph():
+    graph = StateGraph(State)
+    graph.add_node("router", router_node)
+    graph.add_node("rewrite", troubleshooting_rewriter)
+    graph.add_node("retrieve", retrieve_node)
+    graph.add_node("context", context_window_node)
+    graph.add_node("final", troubleshooting_final)
+    graph.add_node("evaluate", troubleshooting_evaluator)
+    graph.add_node("stream", troubleshooting_streamer)
 
-@traceable
-async def smart_run(chat_history: list, user_query: str):
-    """Decides RAG or direct chat."""
+    graph.add_node("noop", lambda state: state)  # No-op for unhandled routes
+    graph.add_node("end", lambda state: state)  # Add a no-op end node
 
-    chat_history_str = build_router_input(chat_history)
-    state = {"messages": chat_history, "route": "", "rewritten": "", "uncertain": False}
-    router_output = query_router_graph.invoke(state)
-
-    # Print graph output to debug
-    print("[ROUTER OUTPUT]")
-    print(router_output)
-
-    chat_history_str = "\n".join(chat_history_str)
-    rewritten_query = await rewrite_query(user_query, chat_history_str)
-    print(f"[REWRITE] {rewritten_query}")
-    route = router_output.get("route", "")
-    print(f"[ROUTER] Decided route → {route}")
-
-        # Handle 'uncertain' by streaming the follow-up question
-    if router_output.get("route") == "uncertain":
-        follow_up = router_output["messages"][-1].content
-        yield SimpleNamespace(
-            id=str(uuid.uuid4()),
-            object="chat.completion.chunk",
-            model="gpt-4o",
-            created=int(time.time()),
-            choices=[SimpleNamespace(
-                index=0,
-                delta=SimpleNamespace(
-                    role="assistant",
-                    content=follow_up,
-                    citations=[],
-                    tool_calls=None
-                )
-            )]
-        )
-
-    elif route in ["mechanical_drawing", "troubleshooting"]:
-        async for chunk in run_test_rag(chat_history, rewritten_query, forced_route=route):
-            yield chunk
-    else:
-        msgs = []
-        for m in chat_history:
-            role = "user" if m.type == "human" else "assistant"
-            msgs.append({"role": role, "content": m.content})
-
-        # Add current user query
-        msgs.append({"role": "user", "content": user_query})
-        async for chunk in llm.astream(msgs):
-            if chunk.content:
-                yield SimpleNamespace(
-                    id=str(uuid.uuid4()),
-                    object="chat.completion.chunk",
-                    model="gpt-4o",
-                    created=int(time.time()),
-                    choices=[
-                        SimpleNamespace(
-                            index=0,
-                            delta=SimpleNamespace(
-                                role="assistant",
-                                content=chunk.content,
-                                citations=[],
-                                tool_calls=None
-                            )
-                        )
-                    ]
-            )
-
-
-async def stream_chat_request(request_body, request_headers):
-    """Stream the assistant response *and* let the final chunk carry citations.
-
-        The front-end’s Chat.tsx simply splits the byte stream on newlines and
-        JSON-parses every line, so each `yield` must be one COMPLETE JSON object
-        on its own line (format_stream_response handles that for us).
-    """
-
-    # 1 Pull the most-recent user message text
-    last_user_msg = next(
-        (m["content"] for m in reversed(request_body["messages"]) if m["role"] == "user"),
-        ""
+    graph.set_entry_point("router")
+    graph.add_conditional_edges(
+    "router",
+    lambda state: state["route"],
+    {
+        "troubleshooting": "rewrite",
+        "mechanical_drawing": "noop",  
+        "general": "noop",  
+        "uncertain": "end",  # or a follow-up node
+    }
+)
+    graph.add_edge("rewrite", "retrieve")
+    graph.add_edge("retrieve", "context")
+    graph.add_edge("context", "final")
+    graph.add_edge("final", "evaluate")
+    # 3. Conditional edge: evaluate → final if not approved, else finish
+    MAX_RETRIES = 5
+    graph.add_conditional_edges(
+        "evaluate",
+        lambda state: state["approved"] or  state.get("retry_count", 0) >= MAX_RETRIES,
+        {
+            True: "stream",           # stop graph by routing to a terminal node
+            False: "final",        # loop back to final
+        }
     )
 
-    # 2️ Any metadata you want to keep flowing through
+    graph.add_edge("stream", "end") 
+    graph.set_finish_point("end")
+
+    return graph.compile()
+
+main_graph = build_graph()
+
+
+@traceable
+async def smart_stream_chat(request_body, request_headers):
+    """Combined smart_run + stream_chat_request."""
+   
     history_md = request_body.get("history_metadata", {})
 
-    # convert messages from request body to chathistory for langchain
-    messages = request_body.get("messages", [])
-    chat_history = convert_messages_to_chat_history(messages)
+    # 2. Convert to LangChain chat history
+    chat_history = convert_messages_to_chat_history(request_body.get("messages", []))
 
-    # 3️ Pass it to the RAG async generator and forward each chunk
-    async for rag_chunk in smart_run(chat_history, last_user_msg):
-        #   rag_chunk is already OpenAI-style.  `format_stream_response`
-        #   adds request-/history-ids etc. and serialises to NDJSON.
-        yield format_stream_response(
-            rag_chunk,
-            history_md,
-            rag_chunk.id                        # we set this in _wrap_chunk
-        )
+    # 3. Route the query
+    state = {"messages": chat_history}
+    # Call the graph as an async generator
+    async for chunk in main_graph.astream(state, stream_mode="custom"):
+        # chunk is still your SimpleNamespace here
+        event = format_stream_response(chunk, history_md, chunk.id)  # now pass ID correctly
+        yield event
+    
+
+
+
+    # 4d. General chat → fallback LLM
+    # msgs = []
+    # for m in chat_history:
+    #     role = "user" if m.type == "human" else "assistant"
+    #     msgs.append({"role": role, "content": m.content})
+    # msgs.append({"role": "user", "content": last_user_msg})
+
+    # async for mur in llm.astream(msgs):
+    #     if mur.content:
+    #         chunk = SimpleNamespace(
+    #             id=str(uuid.uuid4()), object="chat.completion.chunk", model="gpt-4o",
+    #             created=int(time.time()),
+    #             choices=[SimpleNamespace(
+    #                 index=0,
+    #                 delta=SimpleNamespace(role="assistant", content=mur.content, citations=[], tool_calls=None)
+    #             )]
+    #         )
+    #         yield format_stream_response(chunk, history_md, chunk.id)
+
 
 def convert_messages_to_chat_history(messages: list):
     # Step 1: Slice to get only recent messages (each pair = 2 messages)
-    recent_raw_msgs = messages[-(MAX_PAIRS_FOR_ROUTER * 2 + 1):]
+    recent_raw_msgs = messages[-(3 * 2 + 1):]
 
     # Step 2: Convert only recent messages to LangChain message objects
     chat_history = []
@@ -304,7 +287,7 @@ def convert_messages_to_chat_history(messages: list):
 async def conversation_internal(request_body, request_headers):
     try:
         if app_settings.azure_openai.stream and not app_settings.base_settings.use_promptflow:
-            result =  stream_chat_request(request_body, request_headers)
+            result =  smart_stream_chat(request_body, request_headers)
             response = await make_response(format_as_ndjson(result))
             response.timeout = None
             response.mimetype = "application/json-lines"
