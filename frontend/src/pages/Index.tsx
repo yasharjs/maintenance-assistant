@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable react-hooks/exhaustive-deps */
 /* eslint-disable arrow-parens */
 /* eslint-disable comma-dangle */
 /* eslint-disable react/jsx-indent-props */
