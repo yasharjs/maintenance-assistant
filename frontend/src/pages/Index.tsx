@@ -1,3 +1,5 @@
+/* eslint-disable arrow-parens */
+/* eslint-disable comma-dangle */
 /* eslint-disable react/jsx-indent-props */
 
 /* eslint-disable import/no-extraneous-dependencies */
@@ -15,35 +17,21 @@ import { v4 as uuid } from "uuid";
 import { conversationApi,
   frontendSettings,
   historyDelete,
-  historyDeleteAll,
   historyGenerate,
   historyList,
   historyRead,
   historyRename, 
   historyUpdate} from "../api/api";
-import { ConversationRequest, ChatMessage } from "../api/models";
-import AppSidebar from "../components/AppSidebar";
+import { ConversationRequest, ChatMessage, Conversation } from "../api/models";
 import ChatInterface from "../components/ChatInterface";
 import ShareDialog from "../components/ShareDialog";
 import { Button } from "../components/ui/button";
 import { SidebarProvider, useSidebar } from "../components/ui/sidebar";
 import { useToast } from "../hooks/use-toast";
 import { AppStateContext } from "../state/AppProvider";
-
-interface Message {
-  id: string;
-  content: string;
-  role: "user" | "assistant";
-  timestamp: Date;
-}
-
-interface Chat {
-  id: string;
-  title: string;
-  lastMessage: string;
-  timestamp: Date;
-  messages: Message[];
-}
+import { useTheme } from "../components/ThemeProvider";
+import Sidebar from "../components/Sidebar";
+import type { Chat } from "@/types/chats";
 
 // Roles from old Chat.tsx
 const [ASSISTANT, TOOL, ERROR] = ['assistant', 'tool', 'error'];
@@ -106,11 +94,56 @@ const MainContent = () => {
 
   const { toast } = useToast();
   const { open, setOpen } = useSidebar();
+
+// Load chat history
+useEffect(() => {
+  async function loadSettings() {
+    try {
+      const settingsData = await frontendSettings();
+      if (settingsData) {
+        appStateContext?.dispatch({
+          type: "FETCH_FRONTEND_SETTINGS",
+          payload: settingsData
+        });
+      }
+    } catch (err) {
+      console.error("Failed to fetch frontend settings", err);
+    }
+  }
+  loadSettings();
+}, []);
+
+
+// Load frontend settings
+useEffect(() => {
+  async function loadHistory() {
+    try {
+      const chatHistory = await historyList();
+
+      if (chatHistory) {
+        // Fill missing titles with a fallback before dispatch
+        const filledHistory = chatHistory.map(chat => ({
+          ...chat,
+          title: chat.title?.trim() || "Untitled Chat"
+        }));
+
+        appStateContext?.dispatch({
+          type: "FETCH_CHAT_HISTORY",
+          payload: filledHistory
+        });
+      }
+    } catch (err) {
+      console.error("Failed to load chat history", err);
+    }
+  }
+  loadHistory();
+}, []);
   
   // Get data from AppStateContext
   const chats = appStateContext?.state.chatHistory || [];
   const currentChat = appStateContext?.state.currentChat;
   const settings = appStateContext?.state.frontendSettings;
+
 
   function normalizeContent(content: any): string {
     if (typeof content === "string") return content;
@@ -131,33 +164,97 @@ const MainContent = () => {
   }
 
   // Convert AppState chat history to local format
-  const mappedChats: Chat[] = chats.map(conv => ({
+const truncateString = (str: string, n: number) =>
+  str && str.length > n ? str.slice(0, n) + "…" : str;
+
+const mappedChats: Chat[] = (chats || []).map(conv => {
+  let safeTitle = "";
+
+  // Case 1: Title is a string
+  if (typeof conv.title === "string") {
+    safeTitle = conv.title.trim();
+  }
+
+  // Case 2: Title is an array
+  else if (Array.isArray(conv.title)) {
+    const firstBlock: any = conv.title[0]; // use any here to avoid never
+
+    if (
+      firstBlock &&
+      typeof firstBlock === "object" &&
+      "type" in firstBlock &&
+      firstBlock.type === "text" &&
+      "text" in firstBlock &&
+      typeof firstBlock.text === "string"
+    ) {
+      safeTitle = firstBlock.text.trim();
+    }
+  }
+
+  // Fallback: First message content
+  if (!safeTitle) {
+    safeTitle =
+      typeof conv.messages?.[0]?.content === "string"
+        ? conv.messages[0].content
+        : "New Chat";
+  }
+  return {
     id: conv.id,
-    title: conv.title,
-    lastMessage: normalizeContent(
-      conv.messages?.[conv.messages.length - 1]?.content ?? ""
+    title: truncateString(safeTitle, 40), // always a string now
+    lastMessage: truncateString(
+      normalizeContent(
+        typeof conv.messages?.[conv.messages.length - 1]?.content === "string"
+          ? conv.messages[conv.messages.length - 1]?.content
+          : ""
+      ),
+      35
     ),
     timestamp: conv.date ? new Date(conv.date) : new Date(),
     messages: (conv.messages || []).map(m => ({
       id: m.id,
-      content: normalizeContent(m.content),
+      content: normalizeContent(
+        typeof m.content === "string" ? m.content : ""
+      ),
       role: m.role as "user" | "assistant",
       timestamp: m.date ? new Date(m.date) : new Date()
     }))
-  }));
+  };
+});
+
 
   const getCurrentChat = () => {
     return mappedChats.find(chat => chat.id === activeChat);
   };
 
   // Select a chat and load it in AppState
-  const handleSelectChat = async (chatId: string) => {
-    setActiveChat(chatId);
-    const selectedChat = chats.find(c => c.id === chatId);
-    if (selectedChat) {
-      appStateContext?.dispatch({ type: 'UPDATE_CURRENT_CHAT', payload: selectedChat });
-    }
-  };
+const handleSelectChat = async (chatId: string) => {
+  setActiveChat(chatId);
+
+  try {
+    // Find chat from mapped list
+    const chat = mappedChats.find(c => c.id === chatId);
+    if (!chat) return;
+
+    // Load messages for this chat
+    const messages = await historyRead(chatId);
+
+    // Create a proper Conversation object
+    const updatedChat: Conversation = {
+      id: chat.id,
+      title: chat.title,
+      date: chat.timestamp.toISOString(),
+      messages
+    };
+
+    // Dispatch full Conversation
+    appStateContext?.dispatch({
+      type: "UPDATE_CURRENT_CHAT",
+      payload: updatedChat
+    });
+  } catch (err) {
+    console.error("Failed to load chat messages", err);
+  }
+};
 
 
   // Delete chat using AppState
@@ -291,8 +388,7 @@ const MainContent = () => {
                     }
                   }
                     if (msg.role === TOOL) {
-                      toolMessage = { ...msg, id: msg.id || uuid() };
-}
+                      toolMessage = { ...msg, id: msg.id || uuid() };}
                 });
               }
               runningText = '';
@@ -302,9 +398,6 @@ const MainContent = () => {
           }
         }
       }
-
-      console.log("[DEBUG] Backend history_metadata:", finalResult.history_metadata);
-
       // Title fallback logic
       if (!currentChat && finalResult.history_metadata) {
         conversation.id = finalResult.history_metadata.conversation_id;
@@ -358,13 +451,13 @@ const MainContent = () => {
   }
 };
 
-
-
   // Handle chat selection on initial load
-  const selectedChat = getCurrentChat();
+const selectedChat = getCurrentChat();
+const { theme, setTheme } = useTheme();
+const [isCollapsed, setIsCollapsed] = useState(false);
 
   return (
-    <div className="min-h-screen bg-background flex w-full relative">
+    <div className="h-screen bg-background flex w-full overflow-hidden">
       {!open && (
         <Button
           onClick={() => setOpen(true)}
@@ -375,13 +468,18 @@ const MainContent = () => {
       )}
 
       <div className="flex flex-1">
-        <AppSidebar
+        <Sidebar
           chats={mappedChats}
           activeChat={activeChat}
           onSelectChat={handleSelectChat}
           onNewChat={handleNewChat}
           onDeleteChat={handleDeleteChat}
           onRenameChat={handleRenameChat}
+          isCollapsed={isCollapsed}
+          onToggleCollapse={() => setIsCollapsed(prev => !prev)}
+          isDarkMode={theme === "dark"}
+          onToggleDarkMode={() => setTheme(theme === "dark" ? "light" : "dark")}
+          onShareChat={handleShareChat}
         />
         <div className="flex-1 flex">
           <ChatInterface

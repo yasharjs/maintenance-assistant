@@ -4,7 +4,7 @@
 /* eslint-disable indent */
 /* eslint-disable comma-dangle */
 /* eslint-disable simple-import-sort/imports */
-import React, { useContext, useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Check,
   Copy,
   MessageSquare,
@@ -15,12 +15,6 @@ import { Check,
   Square,
   ThumbsDown,
   ThumbsUp } from "lucide-react";
-import ReactMarkdown from "react-markdown";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { nord } from "react-syntax-highlighter/dist/esm/styles/prism";
-import remarkGfm from "remark-gfm";
-import supersub from "remark-supersub";
-import DOMPurify from "dompurify";
 
 import { historyMessageFeedback } from "../api/api";
 import { Button } from "../components/ui/button";
@@ -28,25 +22,9 @@ import { ScrollArea } from "../components/ui/scroll-area";
 import { Textarea } from "../components/ui/textarea";
 import { useToast } from "../hooks/use-toast";
 import { cn } from "../lib/utils";
-import { AppStateContext } from "../state/AppProvider";
-import { XSSAllowTags, XSSAllowAttributes } from "../constants/sanatizeAllowables";
+import Markdown from "./ui/Markdown";
+import type { ChatInterfaceProps } from "@/types/chats";
 
-interface Message {
-  id: string;
-  content: string;
-  role: 'user' | 'assistant';
-  timestamp: Date;
-  isTyping?: boolean;
-}
-interface ChatInterfaceProps {
-  messages: Message[];
-  onSendMessage: (content: string) => void;
-  isLoading: boolean;
-  chatTitle?: string;
-  onShareChat?: () => void;
-  onStopGeneration?: () => void;
-  showCentered?: boolean;
-}
 const ChatInterface: React.FC<ChatInterfaceProps> = ({
   messages,
   onSendMessage,
@@ -104,12 +82,37 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       });
     }
   };
-  const handleFeedback = (messageId: string, type: 'up' | 'down') => {
+  
+const handleFeedback = async (messageId: string, type: 'up' | 'down') => {
+  // Show a toast immediately for UX responsiveness
+  toast({
+    title: `Feedback ${type === 'up' ? 'positive' : 'negative'}`,
+    description: "Submitting your feedback..."
+  });
+
+  try {
+    const response = await historyMessageFeedback(messageId, type);
+
+    if (response.ok) {
+      toast({
+        title: "Feedback recorded",
+        description: "Thank you for helping us improve!"
+      });
+    } else {
+      toast({
+        title: "Feedback failed",
+        description: "Please try again later.",
+        variant: "destructive"
+      });
+    }
+  } catch (err) {
     toast({
-      title: `Feedback ${type === 'up' ? 'positive' : 'negative'}`,
-      description: "Thank you for your feedback!"
+      title: "Error submitting feedback",
+      description: "Please try again later.",
+      variant: "destructive"
     });
-  };
+  }
+};
   const handleShare = () => {
     const shareUrl = `${window.location.origin}${window.location.pathname}`;
     navigator.clipboard.writeText(shareUrl);
@@ -134,9 +137,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       <span className="text-sm">Thinking...</span>
     </div>;
   const isCentered = showCentered && messages.length === 0;
+  
   return <div className="flex-1 flex flex-col h-screen bg-chat-background">
+
       {/* Header */}
-      <div className="border-b border-chat-border p-4 bg-card/50 backdrop-blur-sm sticky top-0 z-10">
+      <div className="border-b border-chat-border p-4 bg-card/50 backdrop-blur-xl sticky top-0 z-10">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <h1 className="text-xl font-semibold text-foreground flex items-center">
             <Sparkles className="w-5 h-5 mr-2 text-muted-foreground" />
@@ -146,7 +151,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             <span className="text-sm text-muted-foreground">
               {messages.length} messages
             </span>
-            {messages.length > 0 && onShareChat && <Button variant="outline" size="sm" onClick={onShareChat} className="h-8 px-3 text-xs">
+            {messages.length > 0 && onShareChat && <Button variant="outline" size="sm" onClick={handleShare} className="h-8 px-3 text-xs">
                 <Share2 className="w-3 h-3 mr-1" />
                 Share
               </Button>}
@@ -155,7 +160,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       </div>
 
       {/* Messages */}
-            <ScrollArea className={cn("flex-1", isCentered ? "flex items-center justify-center" : "p-4")}>
+            <ScrollArea className={cn("flex-1", isCentered ? "flex items-center justify-center" : "px-20 py-4")}>
               <div className={cn("max-w-4xl w-full", isCentered ? "mx-auto" : "space-y-8 ml-0")}>
 
           {messages.length === 0 && isCentered ? <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-8 py-0 my-[100px]">
@@ -192,9 +197,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                    <div className={cn("p-3 rounded-2xl transition-all duration-200 block w-fit max-w-full", 
                      "hover:shadow-xl hover:dark:shadow-white/20",
                      message.role === 'user' ? "bg-chat-message-user text-primary-foreground hover:shadow-primary/20 hover:dark:shadow-primary/30" : "bg-chat-message-assistant text-foreground border border-chat-border/30 hover:shadow-black/10 hover:dark:shadow-white/15")}>
-                     <p className="whitespace-pre-wrap leading-relaxed text-sm m-0">{message.content}</p>
+                      {message.role === "assistant" ? (
+                        <Markdown content={message.content} />
+                      ) : (
+                        <p className="whitespace-pre-wrap leading-relaxed text-sm m-0">
+                          {message.content}
+                        </p>
+                      )}
                    </div>
-
                   {/* Message Actions */}
                   <div className={cn("flex items-center mt-1 px-0 opacity-0 group-hover:opacity-100 transition-all duration-200", message.role === 'user' ? "justify-end" : "justify-start")}>
                     <div className="flex items-center space-x-1">
@@ -244,7 +254,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       </ScrollArea>
 
       {/* Input Area - Only show when not centered or when there are messages */}
-      {!isCentered && <div className="border-t border-chat-border bg-card/50 backdrop-blur-sm p-6">
+      {!isCentered && <div className="border-t border-chat-border bg-card/50 backdrop-blur-xl px-20 py-4">
           <div className="max-w-4xl mx-auto">
             <form onSubmit={handleSubmit} className="relative">
               <div className="relative group">
@@ -262,3 +272,4 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     </div>;
 };
 export default ChatInterface;
+

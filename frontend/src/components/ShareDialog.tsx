@@ -1,3 +1,5 @@
+/* eslint-disable simple-import-sort/imports */
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import React, { useState } from "react";
 import { Check, Copy, Globe, Lock, Share } from "lucide-react";
 
@@ -10,12 +12,8 @@ import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { useToast } from "../hooks/use-toast";
 
-interface ShareDialogProps {
-  isOpen: boolean;
-  onClose: () => void;
-  chatId: string;
-  chatTitle: string;
-}
+import type { ShareDialogProps } from "@/types/chats";
+
 
 const ShareDialog: React.FC<ShareDialogProps> = ({
   isOpen,

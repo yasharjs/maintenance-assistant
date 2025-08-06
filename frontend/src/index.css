@@ -2,8 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ChatGPT-inspired Design System */
-
 @layer base {
   :root {
     --background: 0 0% 100%;
@@ -36,7 +34,8 @@
 
     --radius: 0.75rem;
 
-    /* Chat specific colors */
+    --app-background: 0 0% 98%;
+
     --chat-background: 0 0% 100%;
     --chat-message-user: 0 0% 20%;
     --chat-message-assistant: 0 0% 96%;
@@ -68,7 +67,7 @@
     --background: 0 0% 6%;
     --foreground: 0 0% 90%;
 
-    --card: 0 0% 8%;
+    --card: 0 0% 8% / 0.5;
     --card-foreground: 0 0% 90%;
 
     --popover: 0 0% 8%;
@@ -93,7 +92,8 @@
     --input: 0 0% 12%;
     --ring: 0 0% 90%;
 
-    /* Dark mode chat colors */
+    --app-background: 0 0% 12%;
+    
     --chat-background: 0 0% 6%;
     --chat-message-user: 0 0% 90%;
     --chat-message-assistant: 0 0% 10%;
@@ -131,11 +131,30 @@
     border-color: hsl(var(--border));
   }
 
-  body {
-    background-color: hsl(var(--background));
-    color: hsl(var(--foreground));
-  }
-    .sidebar {
-    color: hsl(var(--sidebar-foreground)); 
-  }
+/* Base background + text */
+body {
+  background-color: hsl(var(--app-background));
+  color: hsl(var(--foreground));
+}
+
+/* Sidebar background */
+.sidebar,
+[class*="Sidebar"] {
+  background-color: hsl(var(--app-background));
+  color: hsl(var(--foreground));
+}
+
+/* Chat background */
+.bg-chat-background {
+  background-color: hsl(var(--app-background)) !important;
+}
+
+/* Top & bottom bars (header/footer) */
+.top-bar,
+.bottom-bar,
+.border-chat-border {
+  background-color: hsl(var(--app-background)) !important;
+}
+
+
 }
