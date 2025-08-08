@@ -5,7 +5,6 @@ from langgraph.graph.message import add_messages
 from backend.rag.test_rag import llm
 from pydantic import BaseModel, Field
 from langchain_core.messages import SystemMessage
-from langsmith import traceable
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 import spacy
 import uuid, time
@@ -17,7 +16,7 @@ from backend.custom_langgraph.troubleshoot_graph import State
 
 few_shots = [
     # Single-turn examples
-    HumanMessage(content="servo valve part number?"),
+    HumanMessage(content="stroke manifold assembly drawing item numbers"),
     AIMessage(content="mechanical_drawing"),
 
     HumanMessage(content="servo valve not working?"),
@@ -29,8 +28,8 @@ few_shots = [
     HumanMessage(content="what are the assembly parts of a servo valve"),
     AIMessage(content="troubleshooting"),
     
-    HumanMessage(content="what are the main components of a filter o-ring "),
-    AIMessage(content="troubleshooting"),
+    # HumanMessage(content="what are the main components of a filter o-ring "),
+    # AIMessage(content="troubleshooting"),
 
     HumanMessage(content="can you give me a list of valve drawings available?"),
     AIMessage(content="mechanical_drawing"),
@@ -95,7 +94,7 @@ def normalize_query_to_lemmas(query: str) -> list[str]:
     return [token.lemma_ for token in doc if not token.is_stop and token.is_alpha]
 
 
-@traceable(name="router_node")  # custom name
+
 def router_node(state: State, writer: StreamWriter) -> dict:
     history = state["messages"][-5:]
     query = state["messages"][-1].content.lower()
@@ -104,7 +103,7 @@ def router_node(state: State, writer: StreamWriter) -> dict:
     system_message = SystemMessage(content=(
         "You are a routing agent for an enterprise maintenance assistant. "
         "Your task is to classify the current user query into one of the following categories:\n"
-        "- mechanical_drawing: for diagrams, drawings, part numbers, BOMs\n"
+        "- mechanical_drawing: for diagrams, drawings, drawing item position, drawing item position number, item numbers,BOMs\n"
         "- troubleshooting: for issues, alarms, errors, calibration, fixing steps\n"
         "If a query mentions components or parts but does not clearly request a drawing, list, or part number, classify as 'troubleshooting'."
         "- uncertain: if the intent is unclear or ambiguous\n\n"
@@ -123,7 +122,7 @@ def router_node(state: State, writer: StreamWriter) -> dict:
         "fix", "fault", "faulty", "issue", "problem", "alarm", "error", "not working",
         "doesn't work", "fail", "failure", "calibrate", "calibration", "adjust", "adjustment",
         "check", "verify", "diagnose", "troubleshoot", "step", "procedure", "test", 
-        "pressure", "voltage", "current", "symptom", "reset", "override", "sequence", "enable"
+        "pressure", "voltage", "current", "symptom", "reset", "override", "sequence", "enable", "pinout"
     ]
 
     mechanical_drawing_keywords = [
@@ -166,6 +165,7 @@ def router_node(state: State, writer: StreamWriter) -> dict:
         return {"route": "uncertain", "follow_up": result.follow_up}
         
     else:
+        print(f"[ROUTER] Classified query '{query}' as route: {route}")
         return {"route": route , "follow_up": ""}
  
 __all__ = [ "State", "router_node" ]
