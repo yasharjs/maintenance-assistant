@@ -29,7 +29,7 @@ async def trblsht_rewriter(state: State) -> dict:
 
     # Send to LLM as structured output
     result = llm.invoke([system, *last_messages])
-
+    print("Rewritten question:", result.content.strip())
     return {"rewritten": result.content.strip()}
 
 
@@ -67,7 +67,7 @@ async def context_window_node(state: State, writer: StreamWriter) -> dict:
         • Do NOT paraphrase technical values (voltages, jumpers). Repeat exactly.
         • Format numerical data using GitHub-Flavored Markdown tables (pipes `|`, dashes `-`).
         • Use numbered lists for procedures. Avoid bullets or code blocks.
-        • Do NOT include sections numbers or figure titles from the document as the user cannot reference them.
+        IMPORTANT: Do NOT reference document sections, tables, figures, or page numbers unless the user specifically asked. Only summarize the relevant information.        
         """
 
     SAFETY_AND_TOOLS = """
