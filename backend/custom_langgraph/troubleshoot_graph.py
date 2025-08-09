@@ -1,6 +1,5 @@
 from typing import TypedDict, Annotated, Optional
 from langgraph.graph.message import add_messages
-from backend.rag.test_rag import llm, retriever
 from pydantic import BaseModel, Field
 from langchain_core.messages import SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
@@ -8,7 +7,8 @@ from langchain_core.messages import HumanMessage
 from langgraph.types import StreamWriter 
 from types import SimpleNamespace
 import uuid, time , os, logging, asyncio
-
+from backend.client import get_llm , get_vectorstore
+llm = get_llm()
 logger = logging.getLogger(__name__)
 
 # --- State schema extended for troubleshooting workflow ---
@@ -63,6 +63,11 @@ async def troubleshooting_rewriter(state: State) -> dict:
     return {"rewritten": result.content.strip()}
 
 async def retrieve_node(state: State) -> State:
+    vectorstore = get_vectorstore()
+    retriever = vectorstore.as_retriever(
+        search_type="hybrid",
+        k=6
+    )
     hits = await retriever.aget_relevant_documents(state["rewritten"])
     return {**state, "hits": hits}
 

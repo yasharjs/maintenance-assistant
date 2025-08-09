@@ -135,93 +135,16 @@ class RouteResponse(BaseModel):
 
 router_llm = llm.with_structured_output(RouteResponse)
 
-def normalize_query_to_lemmas(query: str) -> list[str]:
-    doc = nlp(query.lower())
-    return [token.lemma_ for token in doc if not token.is_stop and token.is_alpha]
-
-# --- Normalization ---
-_word = re.compile(r"[A-Za-z0-9]+")
-
-# Normalize: lowercase, remove punctuation, extra spaces
-def normalize(text: str) -> str:
-    return " ".join(_word.findall(text.lower()))
-
-# Tokenize: simple whitespace split 
-def tokenize(text: str):
-    return normalize(text).split()
-
-# --- Deterministic keyword sets (high-precision) ---
-# keep these tight and explicit; expand gradually based on failures
-TROUBLE_HARD = tuple([
-    "breakout box", "break out box",
-    "pinout", "pin value", "pin values", "pin", "pins",
-    "ready signal", "valve ready", "enable",
-    "fault", "alarm", "error",
-    "voltage", "reading", "measure",
-    "proxy", "pilot unlock",
-])
-
-DRAWING_HARD = tuple([
-    "drawing", "diagram", "schematic",
-    "bom", "bill of materials",
-    "item number", "position", "item position",
-    "exploded", "rev", "revision",
-    "zoom", "zoom into", "zoom in",
-])
-
-SHORT_UTTERANCE_TOKENS = 2  # guard: 1-2 tokens w/out hard keywords => uncertain
-
-
-def hit_any(text: str, phrases: Tuple[str, ...]) -> bool:
-    t = " " + normalize(text) + " "
-    for ph in phrases:
-        if " " + normalize(ph) + " " in t:
-            return True
-    return False
-
-def deterministic_gate(query: str) -> Optional[str]:
-    # 1) Short utterance guard
-    toks = tokenize(query)
-    if len(toks) <= SHORT_UTTERANCE_TOKENS:
-        # unless it clearly mentions a drawing or troubleshooting hard keyword
-        if hit_any(query, DRAWING_HARD):
-            return "mechanical_drawing"
-        if hit_any(query, TROUBLE_HARD):
-            return "troubleshooting"
-        return "uncertain"
-
-    # 2) High-precision keyword overrides
-    if hit_any(query, TROUBLE_HARD):
-        return "troubleshooting"
-
-    if hit_any(query, DRAWING_HARD):
-        # only if it doesn't also strongly suggest troubleshooting
-        if not hit_any(query, TROUBLE_HARD):
-            return "mechanical_drawing"
-
-    return None  # let LLM decide
 async def _hybrid_route_with_followup(query: str, history_msgs):
-    # 1) deterministic gates first
-    # det = deterministic_gate(query)
-    # if det in {"troubleshooting", "mechanical_drawing", "general"}:
-    #     print(f"Deterministic route for '{query}': {det}")
-    #     return {"route": det, "follow_up": ""}
+ 
 
-    # 2) LLM structured fallback
+    # LLM structured fallback
     llm_resp = await classify_structured(query, history_msgs)
     route = llm_resp["route"]
     follow_up = llm_resp["follow_up"]
 
-    # 3) Tie-breaker: if LLM says uncertain but we see a clear domain hint
+    # Tie-breaker: if LLM says uncertain but we see a clear domain hint
     if route == "uncertain":
-    #     print(f"LLM uncertain for '{query}', checking keywords...")
-    #     if hit_any(query, TROUBLE_HARD):
-    #         return {"route": "troubleshooting", "follow_up": ""}
-    #     if hit_any(query, DRAWING_HARD):
-    #         return {"route": "mechanical_drawing", "follow_up": ""}
-    #     # still uncertain → keep LLM follow-up (and ensure there is one)
-    #     if not follow_up:
-    #         follow_up = "Can you clarify if you want electrical pin/values or drawing/BOM details?"
          return {"route": "uncertain", "follow_up": follow_up}
 
     # Normal case
