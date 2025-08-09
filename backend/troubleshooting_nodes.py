@@ -67,6 +67,7 @@ async def context_window_node(state: State, writer: StreamWriter) -> dict:
         • Do NOT paraphrase technical values (voltages, jumpers). Repeat exactly.
         • Format numerical data using GitHub-Flavored Markdown tables (pipes `|`, dashes `-`).
         • Use numbered lists for procedures. Avoid bullets or code blocks.
+        • Do NOT include sections numbers or figure titles from the document as the user cannot reference them.
         """
 
     SAFETY_AND_TOOLS = """
