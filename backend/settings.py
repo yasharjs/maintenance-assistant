@@ -20,6 +20,7 @@ from typing import List, Literal, Optional
 from typing_extensions import Self
 from quart import Request
 from backend.utils import parse_multi_columns, generateFilterString
+from pydantic import SecretStr
 
 DOTENV_PATH = os.environ.get(
     "DOTENV_PATH",
@@ -762,8 +763,66 @@ class _LangsmithSettings(BaseSettings):
     project: Optional[str] = None
     endpoint: Optional[str] = None
     tracing_v2: bool = Field(default=True, alias="TRACING_V2")
-        
-        
+
+class _AzureSearchCredentials(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="AZURE_SEARCH_",
+        env_file=DOTENV_PATH,
+        extra="ignore",
+        env_ignore_empty=True
+    )
+
+    endpoint: str
+    key: str
+    index: str
+    search_dimensions: int
+
+
+class _AzureOpenAICredentials(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="AZURE_OPENAI_",
+        env_file=DOTENV_PATH,
+        extra="ignore",
+        env_ignore_empty=True
+    )
+
+    endpoint: str
+    resource: str
+    model: str
+    key: str
+    max_tokens: int
+    top_p: float
+    preview_api_version: str 
+    temperature: float
+    stream: bool
+
+
+class _AzureOpenAIEmbeddingCredentials(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="AZURE_OPENAI_EMBEDDING_",
+        env_file=DOTENV_PATH,
+        extra="ignore",
+        env_ignore_empty=True
+    )
+
+    endpoint: str
+    model: str
+    key: SecretStr
+    api_version: str
+
+
+class _AzureStorageCredentials(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="AZURE_STORAGE_",
+        env_file=DOTENV_PATH,
+        extra="ignore",
+        env_ignore_empty=True
+    )
+
+    account: str
+    key: str
+    container: str
+
 class _BaseSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=DOTENV_PATH,
@@ -788,6 +847,11 @@ class _AppSettings(BaseModel):
     datasource: Optional[DatasourcePayloadConstructor] = None
     promptflow: Optional[_PromptflowSettings] = None
     langsmith: Optional[_LangsmithSettings] = _LangsmithSettings()
+    azure_search_credentials: _AzureSearchCredentials = _AzureSearchCredentials()
+    azure_storage_credentials: _AzureStorageCredentials = _AzureStorageCredentials()
+    azure_openai_credentials: _AzureOpenAICredentials = _AzureOpenAICredentials()
+    azure_openai_embedding_credentials: _AzureOpenAIEmbeddingCredentials = _AzureOpenAIEmbeddingCredentials()
+
 
     @model_validator(mode="after")
     def set_promptflow_settings(self) -> Self:
