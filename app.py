@@ -45,17 +45,10 @@ from backend.custom_langgraph.troubleshoot_graph import (
 from langchain_openai import AzureChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain.schema import HumanMessage, AIMessage
-from langsmith import traceable
+
 import os
 
-# Set environment variables for LangSmith
-if app_settings.langsmith.api_key:
-    os.environ["LANGSMITH_API_KEY"] = app_settings.langsmith.api_key
-if app_settings.langsmith.project:
-    os.environ["LANGSMITH_PROJECT"] = app_settings.langsmith.project
-if app_settings.langsmith.endpoint:
-    os.environ["LANGSMITH_ENDPOINT"] = app_settings.langsmith.endpoint
-os.environ["LANGCHAIN_TRACING_V2"] = str(app_settings.langsmith.tracing_v2).lower()
+
 
 # Defines a modular route group with access to static files for UI rendering
 bp = Blueprint("routes", __name__, static_folder="static", template_folder="static")
@@ -116,9 +109,9 @@ async def assets(path):
 
 
 # Debug settings
-DEBUG = os.environ.get("DEBUG", "false")
-if DEBUG.lower() == "true":
-    logging.basicConfig(level=logging.DEBUG)
+# DEBUG = os.environ.get("DEBUG", "false")
+# if DEBUG.lower() == "true":
+#     logging.basicConfig(level=logging.DEBUG)
 
 USER_AGENT = "GitHubSampleWebApp/AsyncAzureOpenAI/1.0.0"
 
@@ -200,8 +193,8 @@ def build_graph():
     lambda state: state["route"],
     {
         "troubleshooting": "rewrite",
-        "mechanical_drawing": "noop",  
-        "general": "noop",  
+        "mechanical_drawing": "end",  
+        "general": "end",  
         "uncertain": "end",  # or a follow-up node
     }
 )
@@ -228,7 +221,7 @@ def build_graph():
 main_graph = build_graph()
 
 
-@traceable
+
 async def smart_stream_chat(request_body, request_headers):
     """Combined smart_run + stream_chat_request."""
    

@@ -7,7 +7,9 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import HumanMessage
 from langgraph.types import StreamWriter 
 from types import SimpleNamespace
-import uuid, time
+import uuid, time , os, logging, asyncio
+
+logger = logging.getLogger(__name__)
 
 # --- State schema extended for troubleshooting workflow ---
 class State(TypedDict):
@@ -140,7 +142,7 @@ async def context_window_node(state: State) -> State:
 
     return {
         **state,
-        "context": str(prompt)  # 👈 convert prompt object to string
+        "context": str(prompt)  #  convert prompt object to string
     }
     
 # --- Node: Generate final answer via RAG with forced troubleshooting route ---
@@ -244,24 +246,55 @@ def troubleshooting_evaluator(state: State) -> dict:
     }
 
 async def troubleshooting_streamer(state: State, writer: StreamWriter):
+    """
+    Streams state['final_answer'] in slow, human-like chunks.
+
+    Configurable via environment variables:
+      STREAM_INITIAL_DELAY   (float seconds, default 2.0)
+      STREAM_CHUNK_SIZE      (int chars,   default 50)
+      STREAM_CHUNK_INTERVAL  (float secs,  default 0.05)
+    """
     answer = state["final_answer"]
-    # Stream the answer in chunks (simulate token streaming)
-     # chunk_text splits text into ~50 char chunks
-    writer(SimpleNamespace(                    # 🔥 goes to stream_mode="custom"
-        id      = str(uuid.uuid4()),
-        object  = "chat.completion.chunk",
-        model   = "gpt-4o",
-        created = int(time.time()),
-        choices = [SimpleNamespace(
-            index = 0,
-            delta = SimpleNamespace(
-                role       = "assistant",
-                content    = answer,
-                citations  = [],
-                tool_calls = None
+    try:
+        # 1. Read configuration (with defaults)
+        initial_delay   = float(os.getenv("STREAM_INITIAL_DELAY",   "2.0"))
+        chunk_size      = int(  os.getenv("STREAM_CHUNK_SIZE",      "50"))
+        chunk_interval  = float(os.getenv("STREAM_CHUNK_INTERVAL",  "0.05"))
+
+        logger.info(f"Streaming will start after {initial_delay}s delay")
+        # 2. Initial buffer
+        await asyncio.sleep(initial_delay)  # non-blocking pause :contentReference[oaicite:2]{index=2}
+
+        # 3. Split into chunks
+        chunks = [answer[i : i + chunk_size]
+                  for i in range(0, len(answer), chunk_size)]
+        logger.debug(f"Answer split into {len(chunks)} chunks of ~{chunk_size} chars")
+
+        # 4. Stream each chunk with a pause
+        for idx, text in enumerate(chunks):
+            # Prepare the stream‐mode event
+            event = SimpleNamespace(
+                id      = str(uuid.uuid4()),
+                object  = "chat.completion.chunk",
+                model   = "gpt-4o",
+                created = int(time.time()),
+                choices = [SimpleNamespace(
+                    index = 0,
+                    delta = SimpleNamespace(
+                        role       = "assistant",
+                        content    = text,
+                        citations  = [],
+                        tool_calls = None
+                    )
+                )]
             )
-        )]
-    ))
+            writer(event)                       # send chunk
+            await asyncio.sleep(chunk_interval) # slow down :contentReference[oaicite:3]{index=3}
+
+        logger.info("Finished streaming answer")
+    except Exception:
+        # Catch **all** exceptions to avoid killing the graph
+        logger.exception("Error in troubleshooting_streamer; aborting stream")  # :contentReference[oaicite:4]{index=4}
     
 
 

@@ -263,7 +263,7 @@ multi_route_prompt = ChatPromptTemplate.from_messages([
      "Respond with ONLY: mechanical_drawing, troubleshooting, or general."),
     ("human", "History:\n{history}\n\nUser Question:\n{query}")
 ])
-route_classifier_chain = LLMChain(llm=llm,prompt=multi_route_prompt)
+#route_classifier_chain = LLMChain(llm=llm,prompt=multi_route_prompt)
 SIMILARITY_THRESHOLD = 0.80   # keep tuning as you wish
 
 
