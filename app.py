@@ -168,15 +168,6 @@ async def init_cosmosdb_client():
 MAX_PAIRS_FOR_ROUTER = 3       # tune between 2-4
 
 
-#to be deleted
-def build_router_input(chat_history: list):
-    parts = []
-    for m in chat_history:
-        role = "User" if m.type == "human" else "Assistant"
-        parts.append(f"{role}: {m.content}")
-    return parts
-
-
 def build_graph():
     graph = StateGraph(State)
 
