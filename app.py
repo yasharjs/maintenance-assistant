@@ -14,7 +14,7 @@ from quart import (
     render_template,
     current_app,
 )
-from openai import AsyncAzureOpenAI
+
 from azure.identity.aio import (
     DefaultAzureCredential,
 )
@@ -28,27 +28,25 @@ from backend.utils import (
     format_stream_response
 )
 
-from backend.langgraph import query_router_graph
-
+from backend.router_nodes import router_node
+from backend.state import State
+from backend.drawing_nodes import drawing_rewriter_node, page_locator_node, mech_drwg_ans
+from backend.troubleshooting_nodes import trblsht_rewriter, retriever_node, context_window_node
+from langgraph.graph import StateGraph, END
 
 from langchain_openai import AzureChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
-from langchain.agents import initialize_agent
-from langchain.agents.agent_types import AgentType
-from langchain_core.tools import tool
-from backend.rag.test_rag import run_test_rag
 from langchain.schema import HumanMessage, AIMessage
-from langsmith import traceable
 import os
 
-# Set environment variables for LangSmith
-if app_settings.langsmith.api_key:
-    os.environ["LANGSMITH_API_KEY"] = app_settings.langsmith.api_key
-if app_settings.langsmith.project:
-    os.environ["LANGSMITH_PROJECT"] = app_settings.langsmith.project
-if app_settings.langsmith.endpoint:
-    os.environ["LANGSMITH_ENDPOINT"] = app_settings.langsmith.endpoint
-os.environ["LANGCHAIN_TRACING_V2"] = str(app_settings.langsmith.tracing_v2).lower()
+# # Set environment variables for LangSmith
+# if app_settings.langsmith.api_key:
+#     os.environ["LANGSMITH_API_KEY"] = app_settings.langsmith.api_key
+# if app_settings.langsmith.project:
+#     os.environ["LANGSMITH_PROJECT"] = app_settings.langsmith.project
+# if app_settings.langsmith.endpoint:
+#     os.environ["LANGSMITH_ENDPOINT"] = app_settings.langsmith.endpoint
+# os.environ["LANGCHAIN_TRACING_V2"] = str(app_settings.langsmith.tracing_v2).lower()
 
 # Defines a modular route group with access to static files for UI rendering
 bp = Blueprint("routes", __name__, static_folder="static", template_folder="static")
@@ -175,9 +173,11 @@ async def init_cosmosdb_client():
 
     return cosmos_conversation_client
 
-from backend.rag.test_rag import llm, rewrite_query 
+
 MAX_PAIRS_FOR_ROUTER = 3       # tune between 2-4
 
+
+#to be deleted
 def build_router_input(chat_history: list):
     parts = []
     for m in chat_history:
@@ -185,74 +185,119 @@ def build_router_input(chat_history: list):
         parts.append(f"{role}: {m.content}")
     return parts
 
-@traceable
-async def smart_run(chat_history: list, user_query: str):
-    """Decides RAG or direct chat."""
+# async def smart_run(chat_history: list, user_query: str):
+#     """Decides RAG or direct chat."""
 
-    chat_history_str = build_router_input(chat_history)
-    state = {"messages": chat_history, "route": "", "rewritten": "", "uncertain": False}
-    router_output = query_router_graph.invoke(state)
+#     chat_history_str = build_router_input(chat_history)
+#     router_output = await query_router_graph.ainvoke(State(
+#         messages=chat_history[-7:],
+#         route="",
+#         rewritten="",
+#         pages=[]
+#     ))
 
-    # Print graph output to debug
-    print("[ROUTER OUTPUT]")
-    print(router_output)
+#     # Print graph output to debug
+#     print("[ROUTER OUTPUT]")
+#     print(router_output)
 
-    chat_history_str = "\n".join(chat_history_str)
-    rewritten_query = await rewrite_query(user_query, chat_history_str)
-    print(f"[REWRITE] {rewritten_query}")
-    route = router_output.get("route", "")
-    print(f"[ROUTER] Decided route → {route}")
+#     chat_history_str = "\n".join(chat_history_str)
+#     rewritten_query = await rewrite_query(user_query, chat_history_str)
+#     print(f"[REWRITE] {rewritten_query}")
+#     route = router_output.get("route", "")
+#     print(f"[ROUTER] Decided route → {route}")
 
-        # Handle 'uncertain' by streaming the follow-up question
-    if router_output.get("route") == "uncertain":
-        follow_up = router_output["messages"][-1].content
-        yield SimpleNamespace(
-            id=str(uuid.uuid4()),
-            object="chat.completion.chunk",
-            model="gpt-4o",
-            created=int(time.time()),
-            choices=[SimpleNamespace(
-                index=0,
-                delta=SimpleNamespace(
-                    role="assistant",
-                    content=follow_up,
-                    citations=[],
-                    tool_calls=None
-                )
-            )]
-        )
+#     # Handle 'uncertain' by streaming the follow-up question
+#     if router_output.get("route") == "return":
+#         follow_up = router_output["messages"][-1].content
+#         yield SimpleNamespace(
+#             id=str(uuid.uuid4()),
+#             object="chat.completion.chunk",
+#             model="gpt-4o",
+#             created=int(time.time()),
+#             choices=[SimpleNamespace(
+#                 index=0,
+#                 delta=SimpleNamespace(
+#                     role="assistant",
+#                     content=follow_up,
+#                     citations=[],
+#                     tool_calls=None
+#                 )
+#             )]
+#         )
 
-    elif route in ["mechanical_drawing", "troubleshooting"]:
-        async for chunk in run_test_rag(chat_history, rewritten_query, forced_route=route):
-            yield chunk
-    else:
-        msgs = []
-        for m in chat_history:
-            role = "user" if m.type == "human" else "assistant"
-            msgs.append({"role": role, "content": m.content})
+#     elif route in ["mechanical_drawing", "troubleshooting"]:
+#         async for chunk in run_test_rag(chat_history, rewritten_query, forced_route=route):
+#             yield chunk
+#     else:
+#         msgs = []
+#         for m in chat_history:
+#             role = "user" if m.type == "human" else "assistant"
+#             msgs.append({"role": role, "content": m.content})
 
-        # Add current user query
-        msgs.append({"role": "user", "content": user_query})
-        async for chunk in llm.astream(msgs):
-            if chunk.content:
-                yield SimpleNamespace(
-                    id=str(uuid.uuid4()),
-                    object="chat.completion.chunk",
-                    model="gpt-4o",
-                    created=int(time.time()),
-                    choices=[
-                        SimpleNamespace(
-                            index=0,
-                            delta=SimpleNamespace(
-                                role="assistant",
-                                content=chunk.content,
-                                citations=[],
-                                tool_calls=None
-                            )
-                        )
-                    ]
-            )
+#         # Add current user query
+#         msgs.append({"role": "user", "content": user_query})
+#         async for chunk in llm.astream(msgs):
+#             if chunk.content:
+#                 yield SimpleNamespace(
+#                     id=str(uuid.uuid4()),
+#                     object="chat.completion.chunk",
+#                     model="gpt-4o",
+#                     created=int(time.time()),
+#                     choices=[
+#                         SimpleNamespace(
+#                             index=0,
+#                             delta=SimpleNamespace(
+#                                 role="assistant",
+#                                 content=chunk.content,
+#                                 citations=[],
+#                                 tool_calls=None
+#                             )
+#                         )
+#                     ]
+#             )
 
+def build_graph():
+    graph = StateGraph(State)
+
+    graph.add_node("router", router_node)
+    graph.add_node("trblsht_rewrite", trblsht_rewriter)
+    graph.add_node("drawing_rewriter", drawing_rewriter_node)  
+    graph.add_node("retriever_node", retriever_node)
+    graph.add_node("page_locator", page_locator_node) 
+    graph.add_node("mech_drwg_ans", mech_drwg_ans)
+    graph.add_node("context_window_node", context_window_node)
+    # graph.add_node("general", general_agent)
+
+    graph.set_entry_point("router")
+    # --- Conditional branch after router based on state["route"] ---
+    graph.add_conditional_edges(
+        "router",
+        lambda state: state["route"],
+        {
+            "mechanical_drawing": "drawing_rewriter",
+            "return": END,              # ← end the graph here
+            "troubleshooting": "trblsht_rewrite",
+            # "general": "general",
+        }
+    )
+    graph.add_edge("drawing_rewriter", "page_locator")
+    graph.add_edge("trblsht_rewrite", "retriever_node")
+    graph.add_edge("retriever_node", "context_window_node")
+    graph.add_conditional_edges(
+        "page_locator",
+        lambda state: state["route"],
+        {
+            "return": END,
+            "mechanical_drawing": "mech_drwg_ans",
+        }
+    )
+    graph.set_finish_point("mech_drwg_ans")
+    graph.set_finish_point("router")
+
+
+    return graph.compile()
+
+query_router_graph = build_graph()
 
 async def stream_chat_request(request_body, request_headers):
     """Stream the assistant response *and* let the final chunk carry citations.
@@ -262,28 +307,26 @@ async def stream_chat_request(request_body, request_headers):
         on its own line (format_stream_response handles that for us).
     """
 
-    # 1 Pull the most-recent user message text
-    last_user_msg = next(
-        (m["content"] for m in reversed(request_body["messages"]) if m["role"] == "user"),
-        ""
-    )
-
     # 2️ Any metadata you want to keep flowing through
     history_md = request_body.get("history_metadata", {})
 
     # convert messages from request body to chathistory for langchain
     messages = request_body.get("messages", [])
-    chat_history = convert_messages_to_chat_history(messages)
+    chat_history = convert_messages_to_chat_history(messages[-7:])
 
-    # 3️ Pass it to the RAG async generator and forward each chunk
-    async for rag_chunk in smart_run(chat_history, last_user_msg):
-        #   rag_chunk is already OpenAI-style.  `format_stream_response`
-        #   adds request-/history-ids etc. and serialises to NDJSON.
-        yield format_stream_response(
-            rag_chunk,
-            history_md,
-            rag_chunk.id                        # we set this in _wrap_chunk
-        )
+    state = State(
+        messages=chat_history,  # last 7 messages only
+        route="",
+        rewritten="",
+        pages=[],
+        hits=[],
+        context=""
+    )
+
+    async for chunk in query_router_graph.astream(state, stream_mode="custom"):
+        # `chunk` is still your SimpleNamespace here
+        event = format_stream_response(chunk, history_md, chunk.id)  # now pass ID correctly
+        yield event
 
 def convert_messages_to_chat_history(messages: list):
     # Step 1: Slice to get only recent messages (each pair = 2 messages)
