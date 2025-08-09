@@ -28,7 +28,8 @@ from backend.utils import (
     format_stream_response
 )
 
-from backend.router_nodes import router_node
+#from backend.router_nodes import router_node
+from backend.custom_langgraph.router_graph import router_node
 from backend.state import State
 from backend.drawing_nodes import drawing_rewriter_node, page_locator_node, mech_drwg_ans
 from backend.troubleshooting_nodes import trblsht_rewriter, retriever_node, context_window_node
@@ -195,7 +196,7 @@ def build_graph():
         lambda state: state["route"],
         {
             "mechanical_drawing": "drawing_rewriter",
-            "return": END,              # ← end the graph here
+            "uncertain": END,              # ← end the graph here
             "troubleshooting": "trblsht_rewrite",
             # "general": "general",
         }

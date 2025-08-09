@@ -3,7 +3,7 @@ from unittest import result
 from langgraph.graph import StateGraph
 from typing import Dict, Any, Tuple, Optional, Literal
 from langgraph.graph.message import add_messages
-from backend.rag.test_rag import llm
+from backend.client import get_llm
 from pydantic import BaseModel, Field
 from langchain_core.messages import SystemMessage
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
@@ -15,7 +15,7 @@ nlp = spacy.load("en_core_web_sm")
 from backend.custom_langgraph.troubleshoot_graph import State
 import re
 from langchain_core.prompts import ChatPromptTemplate ,  MessagesPlaceholder
-
+llm = get_llm()
 
 few_shots = [
     # Single-turn examples
@@ -31,8 +31,8 @@ few_shots = [
     HumanMessage(content="what are the assembly parts of a servo valve"),
     AIMessage(content="troubleshooting"),
     
-    # HumanMessage(content="what are the main components of a filter o-ring "),
-    # AIMessage(content="troubleshooting"),
+    HumanMessage(content="what are the main components of a filter o-ring "),
+    AIMessage(content="troubleshooting"),
 
     HumanMessage(content="can you give me a list of valve drawings available?"),
     AIMessage(content="mechanical_drawing"),
@@ -41,6 +41,9 @@ few_shots = [
     AIMessage(content="troubleshooting"),
 
     HumanMessage(content="what are the components of a typical servo "),
+    AIMessage(content="troubleshooting"),
+
+    HumanMessage(content="what is the purpose of Pop Rivet - Dome Head?"),
     AIMessage(content="troubleshooting"),
 
     # Multi-turn: follow-up question continues same context
@@ -65,21 +68,53 @@ few_shots = [
     AIMessage(content="troubleshooting"),
     HumanMessage(content="and what if it fails?"),
     AIMessage(content="troubleshooting"),
+
+    HumanMessage(content="centering?"),
+    AIMessage(content="uncertain"),
+
+    HumanMessage(content="values?"),
+    AIMessage(content="uncertain"),
 ]
 
 
+# Shared routing descriptions
 routing_descriptions = {
     "mechanical_drawing": (
-        "Route queries asking for static info: part numbers, BOM entries, drawing locations, or diagram details. "
-        "Intent is to find or describe document content, not fix issues."
-    ),
+        "Select this route when the user explicitly requests to **view or reference a visual document**, such as:\n"
+        "- CAD drawing\n"
+        "- Schematic diagram\n"
+        "- Bill of Materials (BOM)\n"
+        "- Exploded view or item position\n"
+        "- Specific drawing page, part number, or revision\n\n"
+        "Only classify as 'mechanical_drawing' if the main intent is to access or view the drawing/BOM itself. "
+        "If the user mentions a part or component but is asking how it works, how to fix it, or how to check it, route to 'troubleshooting' instead."
+        ),
     "troubleshooting": (
-        "Route queries about operational problems: faults, alarms, calibration, diagnostics, or performance. "
-        "Intent is to solve issues or adjust systems, not just locate parts."
+        "Select this route for **all technical diagnostic, setup, repair, calibration, or fault-resolution queries** related to hydraulic or electrical subsystems.\n\n"
+        "Covers, but is not limited to:\n"
+        "- Machine faults, alarms, and error messages\n"
+        "- Hydraulic or electrical calibration and tuning\n"
+        "- Sensor readings, voltage checks, and signal measurements\n"
+        "- Pin/pinout details, breakout box usage, electrical connector pins\n"
+        "- Control system behavior and logic\n"
+        "- Pressure inconsistencies or flow mismatches\n"
+        "- Component operation, testing, and replacement procedures\n\n"
+        "Relevant equipment:\n"
+        "- Rexroth A10VFE1 & A4VFE1 pumps (master/slave)\n"
+        "- VT5041-3X amplifier cards\n"
+        "- Moog servo valves and breakout boxes\n"
+        "- Husky G-Line, Index, ISB, Hylectric, HyPET, and Quadloc machines\n\n"
+        "Example troubleshooting scenarios:\n"
+        "- Swash plate angle calibration (master/slave)\n"
+        "- Voltage readings at VT5041 test points (PIN1–PIN10)\n"
+        "- Diagnosing servo valve faults (Not Mechanically Centered, Opening Negative, Valve Ready Signal Fault)\n"
+        "- Verifying jumper settings and card configurations\n"
+        "- Cable integrity, grounding, and noise checks\n\n"
+        "**Routing rule:** If the query mentions a part/component without clearly asking for a drawing/BOM view, default to 'troubleshooting'."
     ),
     "general": (
-        "Route greetings, chit-chat"
-    )
+        "Use this route for **non-technical or vague queries**, greetings, small talk, or questions not related to machines, faults, or drawings."
+    ),
 }
 
 class RouteResponse(BaseModel):
@@ -114,7 +149,7 @@ TROUBLE_HARD = tuple([
     "pinout", "pin value", "pin values", "pin", "pins",
     "ready signal", "valve ready", "enable",
     "fault", "alarm", "error",
-    "voltage", "values", "reading", "measure",
+    "voltage", "reading", "measure",
     "proxy", "pilot unlock",
 ])
 
@@ -159,10 +194,10 @@ def deterministic_gate(query: str) -> Optional[str]:
     return None  # let LLM decide
 async def _hybrid_route_with_followup(query: str, history_msgs):
     # 1) deterministic gates first
-    det = deterministic_gate(query)
-    if det in {"troubleshooting", "mechanical_drawing", "general"}:
-        print(f"Deterministic route for '{query}': {det}")
-        return {"route": det, "follow_up": ""}
+    # det = deterministic_gate(query)
+    # if det in {"troubleshooting", "mechanical_drawing", "general"}:
+    #     print(f"Deterministic route for '{query}': {det}")
+    #     return {"route": det, "follow_up": ""}
 
     # 2) LLM structured fallback
     llm_resp = await classify_structured(query, history_msgs)
@@ -171,15 +206,15 @@ async def _hybrid_route_with_followup(query: str, history_msgs):
 
     # 3) Tie-breaker: if LLM says uncertain but we see a clear domain hint
     if route == "uncertain":
-        print(f"LLM uncertain for '{query}', checking keywords...")
-        if hit_any(query, TROUBLE_HARD):
-            return {"route": "troubleshooting", "follow_up": ""}
-        if hit_any(query, DRAWING_HARD):
-            return {"route": "mechanical_drawing", "follow_up": ""}
-        # still uncertain → keep LLM follow-up (and ensure there is one)
-        if not follow_up:
-            follow_up = "Can you clarify if you want electrical pin/values or drawing/BOM details?"
-        return {"route": "uncertain", "follow_up": follow_up}
+    #     print(f"LLM uncertain for '{query}', checking keywords...")
+    #     if hit_any(query, TROUBLE_HARD):
+    #         return {"route": "troubleshooting", "follow_up": ""}
+    #     if hit_any(query, DRAWING_HARD):
+    #         return {"route": "mechanical_drawing", "follow_up": ""}
+    #     # still uncertain → keep LLM follow-up (and ensure there is one)
+    #     if not follow_up:
+    #         follow_up = "Can you clarify if you want electrical pin/values or drawing/BOM details?"
+         return {"route": "uncertain", "follow_up": follow_up}
 
     # Normal case
     return {"route": route, "follow_up": ""}
@@ -189,17 +224,16 @@ async def classify_structured(query: str, history_msgs):
     Calls the LLM and returns a RouteResponse-like dict:
       {"route": "...", "follow_up": "..."}
     """
+    options = "\n".join([f"{k}: {v}" for k, v in routing_descriptions.items()])
+
     # We’ll reuse your existing few_shots and pass a compact history
     prompt_msgs = [
         SystemMessage(content=(
             "You are a routing agent for an enterprise maintenance assistant. "
             "Your task is to classify the current user query into one of the following categories:\n"
-            "- mechanical_drawing: for diagrams, drawings, drawing item position, drawing item position number, item numbers,BOMs\n"
-            "- troubleshooting: for issues, alarms, errors, calibration, fixing steps, diagnostic procedures, electrical values, pin/pinout, breakout box, alarms/faults, enable/ready signals,\n"
-            "If a query mentions components or parts but does not clearly request a drawing, list, or part number, classify as 'troubleshooting'.\n\n"
+            f"{options}\n\n"
             "- uncertain: if the intent is unclear or ambiguous\n\n"
-            "provide a helpful follow-up question.if the query is uncertain, to clarify the user's intent.\n\n"
-            "- general: for greetings, chit-chat, or unrelated queries\n\n"
+            "provide a helpful follow-up question if the query is uncertain, to clarify the user's intent.\n\n"
             "Use conversation history (last 5 messages) to help resolve vague follow-ups like 'what about step 2?'. "
             "Continue the previous intent unless there is a clear switch in topic.\n\n"
             "Return a JSON object with fields: route, follow_up." 
