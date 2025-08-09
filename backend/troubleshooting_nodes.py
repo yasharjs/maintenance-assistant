@@ -82,7 +82,6 @@ async def context_window_node(state: State, writer: StreamWriter) -> dict:
         """
 
     MISSING_INFO_BEHAVIOR = """
-        • Clearly state if relevant data is NOT found in the documents.
         • Do NOT guess or invent missing steps or values.
         """
 
