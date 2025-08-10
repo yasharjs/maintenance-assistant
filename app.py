@@ -27,6 +27,8 @@ from backend.utils import (
     format_as_ndjson,
     format_stream_response
 )
+from langchain_core.messages import SystemMessage
+from langgraph.types import StreamWriter 
 
 #from backend.router_nodes import router_node
 from backend.custom_langgraph.router_graph import router_node
@@ -39,8 +41,9 @@ from langchain_openai import AzureChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain.schema import HumanMessage, AIMessage
 import os
+from backend.client import get_llm
 
-
+llm = get_llm()
 
 # Defines a modular route group with access to static files for UI rendering
 bp = Blueprint("routes", __name__, static_folder="static", template_folder="static")
@@ -167,17 +170,50 @@ async def init_cosmosdb_client():
 
 MAX_PAIRS_FOR_ROUTER = 3       # tune between 2-4
 
+async def general_agent(state: State, writer: StreamWriter) -> dict:
+    """
+    Handles the 'general' route by generating a simple LLM response to the user's query and streaming it.
+    """
+    # Get the last 7 messages
+    last_messages = state["messages"][-7:]
+
+
+    system = SystemMessage(
+        content=(
+            "answer the user's question as best you can. "
+        )
+    )
+    # Stream the LLM response
+    async for chunk in llm.astream([system, *last_messages]):
+        if chunk.content:
+            writer(SimpleNamespace(
+                id=str(uuid.uuid4()),
+                object="chat.completion.chunk",
+                model="gpt-4o",
+                created=int(time.time()),
+                choices=[SimpleNamespace(
+                    index=0,
+                    delta=SimpleNamespace(
+                        role="assistant",
+                        content=chunk.content,
+                        citations=[],
+                        tool_calls=None
+                    )
+                )]
+            ))
+    return {"route": "general"}
 
 def build_graph():
     graph = StateGraph(State)
 
-    graph.add_node("router", router_node)
+    graph.add_node("router", router_node) # type: ignore
     graph.add_node("trblsht_rewrite", trblsht_rewriter)
     graph.add_node("drawing_rewriter", drawing_rewriter_node)  
     graph.add_node("retriever_node", retriever_node)
     graph.add_node("page_locator", page_locator_node) 
     graph.add_node("mech_drwg_ans", mech_drwg_ans)
     graph.add_node("context_window_node", context_window_node)
+    graph.add_node("general", general_agent)
     # graph.add_node("general", general_agent)
 
     graph.set_entry_point("router")
@@ -189,7 +225,7 @@ def build_graph():
             "mechanical_drawing": "drawing_rewriter",
             "uncertain": END,              # ← end the graph here
             "troubleshooting": "trblsht_rewrite",
-            # "general": "general",
+            "general": "general",
         }
     )
     graph.add_edge("drawing_rewriter", "page_locator")

@@ -49,7 +49,7 @@ async def context_window_node(state: State, writer: StreamWriter) -> dict:
 
     # Step 1: Build the context string
     context_text = "\n\n".join(
-        f"{doc.page_content.strip()} [doc{i+1}]" for i, doc in enumerate(docs)
+        f"{doc.page_content.strip()} [doc{i+1}]" for i, doc in enumerate(docs) # type: ignore
     )
 
     message_history = "\n".join(
