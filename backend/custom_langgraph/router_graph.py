@@ -7,14 +7,10 @@ from backend.client import get_llm
 from pydantic import BaseModel, Field
 from langchain_core.messages import SystemMessage
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-import spacy
 import uuid, time
 from types import SimpleNamespace
 from langgraph.types import StreamWriter 
-nlp = spacy.load("en_core_web_sm")
 from backend.custom_langgraph.troubleshoot_graph import State
-import re
-from langchain_core.prompts import ChatPromptTemplate ,  MessagesPlaceholder
 llm = get_llm()
 
 few_shots = [
@@ -184,10 +180,9 @@ async def router_node(state: State, writer: StreamWriter) -> dict:
     # Run the hybrid router (deterministic → LLM) and get follow-up support
     result = await _hybrid_route_with_followup(query, history_msgs)
     route = result["route"]
-    follow_up = result.get("follow_up", "")
-    print(f"Routing query: '{query}' → {route} (follow-up: '{follow_up}')")
     # Keep your uncertain handler: stream a follow-up back to the user
     if route == "uncertain":
+        follow_up = result.get("follow_up", "")
         writer(SimpleNamespace(
             id=str(uuid.uuid4()),
             object="chat.completion.chunk",

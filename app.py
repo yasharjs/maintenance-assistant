@@ -34,7 +34,7 @@ from langgraph.types import StreamWriter
 from backend.custom_langgraph.router_graph import router_node
 from backend.state import State
 from backend.drawing_nodes import drawing_rewriter_node, page_locator_node, mech_drwg_ans
-from backend.troubleshooting_nodes import trblsht_rewriter, retriever_node, context_window_node
+from backend.troubleshooting_nodes import trblsht_rewriter, retriever_node, context_window_node, rerank
 from langgraph.graph import StateGraph, END
 
 from langchain_openai import AzureChatOpenAI
@@ -214,7 +214,7 @@ def build_graph():
     graph.add_node("mech_drwg_ans", mech_drwg_ans)
     graph.add_node("context_window_node", context_window_node)
     graph.add_node("general", general_agent)
-    # graph.add_node("general", general_agent)
+    graph.add_node("rerank", rerank)
 
     graph.set_entry_point("router")
     # --- Conditional branch after router based on state["route"] ---
@@ -230,7 +230,8 @@ def build_graph():
     )
     graph.add_edge("drawing_rewriter", "page_locator")
     graph.add_edge("trblsht_rewrite", "retriever_node")
-    graph.add_edge("retriever_node", "context_window_node")
+    graph.add_edge("retriever_node", "rerank")
+    graph.add_edge("rerank", "context_window_node")
     graph.add_conditional_edges(
         "page_locator",
         lambda state: state["route"],
