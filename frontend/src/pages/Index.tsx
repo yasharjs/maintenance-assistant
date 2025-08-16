@@ -36,12 +36,9 @@ import Sidebar from "../components/Sidebar";
 import type { Chat } from "@/types/chats";
 
 // Roles from old Chat.tsx
-const [ASSISTANT, TOOL, ERROR] = ['assistant', 'tool', 'error'];
-
-let assistantMessage = {} as ChatMessage;
-let toolMessage = {} as ChatMessage;
-let assistantContent = '';
-let latestCitations: any[] = [];
+const ASSISTANT = "assistant";
+const TOOL = "tool";
+const ERROR = "error";
 
 // Parse citations from tool messages (for UI if needed later)
 const parseCitationFromMessage = (message: ChatMessage) => {
@@ -200,15 +197,16 @@ const mappedChats: Chat[] = (chats || []).map(conv => {
         ? conv.messages[0].content
         : "New Chat";
   }
+    const lastMsg =
+    Array.isArray(conv.messages) && conv.messages.length
+      ? conv.messages[conv.messages.length - 1]
+      : undefined;
+
   return {
     id: conv.id,
     title: truncateString(safeTitle, 40), // always a string now
     lastMessage: truncateString(
-      normalizeContent(
-        typeof conv.messages?.[conv.messages.length - 1]?.content === "string"
-          ? conv.messages[conv.messages.length - 1]?.content
-          : ""
-      ),
+      normalizeContent(typeof lastMsg?.content === "string" ? lastMsg.content : ""),
       35
     ),
     timestamp: conv.date ? new Date(conv.date) : new Date(),
@@ -218,7 +216,8 @@ const mappedChats: Chat[] = (chats || []).map(conv => {
         typeof m.content === "string" ? m.content : ""
       ),
       role: m.role as "user" | "assistant",
-      timestamp: m.date ? new Date(m.date) : new Date()
+      timestamp: m.date ? new Date(m.date) : new Date(),
+      citations: Array.isArray((m as any).citations) ? (m as any).citations : []
     }))
   };
 });
@@ -310,7 +309,7 @@ const handleSelectChat = async (chatId: string) => {
 
   // Send message using proper backend integration
  const handleSendMessage = async (content: string) => {
-  const userMessage: ChatMessage = {
+ const userMessage: ChatMessage = {
     id: Date.now().toString(),
     role: "user",
     content,
@@ -322,10 +321,10 @@ const handleSelectChat = async (chatId: string) => {
   let conversation = currentChat;
   let request: ConversationRequest;
 
-  assistantMessage = { id: '', role: ASSISTANT, content: '', date: new Date().toISOString() };
-  toolMessage = {} as ChatMessage;
-  assistantContent = '';
-  latestCitations = [];
+let assistantMessage: ChatMessage = { id: "", role: ASSISTANT, content: "", date: new Date().toISOString() };
+let toolMessage: ChatMessage = {} as ChatMessage;
+let assistantContent = "";
+let latestCitations: any[] = [];
 
   try {
     // Create new or use existing conversation
@@ -376,7 +375,7 @@ const handleSelectChat = async (chatId: string) => {
               finalResult = result;
 
               // Capture citations
-              if (result.citations) latestCitations = result.citations;
+              if (Array.isArray(result.citations)) latestCitations = result.citations;
 
               if (result.choices?.length > 0) {
                 result.choices[0].messages.forEach((msg: any) => {
@@ -385,12 +384,22 @@ const handleSelectChat = async (chatId: string) => {
                     assistantMessage = {...assistantMessage, ...msg, id: msg.id || uuid()}; 
                     assistantMessage.content = assistantContent;
 
-                    if (latestCitations.length > 0) {
+                  if (Array.isArray(latestCitations) && latestCitations.length > 0) {
                       (assistantMessage as any).citations = latestCitations;
-                    }
+                  }
                   }
                     if (msg.role === TOOL) {
-                      toolMessage = { ...msg, id: msg.id || uuid() };}
+                      toolMessage = { ...msg, id: msg.id || uuid() };
+                      // NEW: try to extract citations from tool JSON
+                      try {
+                        if (typeof msg.content === "string") {
+                          const parsed = JSON.parse(msg.content);
+                          if (Array.isArray(parsed?.citations)) {
+                            latestCitations = parsed.citations;
+                          }
+                        }
+                      } catch {}
+                    }
                 });
               }
               runningText = '';
@@ -489,7 +498,9 @@ const [isCollapsed, setIsCollapsed] = useState(false);
               id: m.id,
               content: normalizeContent(m.content),
               role: m.role as "user" | "assistant",
-              timestamp: m.date ? new Date(m.date) : new Date()
+              timestamp: m.date ? new Date(m.date) : new Date(),
+              // keep citations if present (your stream sets them on assistantMessage)
+              citations: Array.isArray((m as any).citations) ? (m as any).citations : []
             })) || []}
             onSendMessage={handleSendMessage}
             isLoading={isLoading}
@@ -501,6 +512,7 @@ const [isCollapsed, setIsCollapsed] = useState(false);
             onShareChat={() => activeChat && handleShareChat(activeChat)}
             onStopGeneration={() => setIsLoading(false)}
             showCentered={!currentChat}
+            isCollapsed={isCollapsed}
           />
         </div>
       </div>

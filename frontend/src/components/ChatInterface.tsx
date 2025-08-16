@@ -1,10 +1,11 @@
+
 /* eslint-disable object-curly-newline */
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable react/jsx-indent */
 /* eslint-disable indent */
 /* eslint-disable comma-dangle */
 /* eslint-disable simple-import-sort/imports */
-import React, { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check,
   Copy,
   MessageSquare,
@@ -25,6 +26,12 @@ import { cn } from "../lib/utils";
 import Markdown from "./ui/Markdown";
 import type { ChatInterfaceProps } from "@/types/chats";
 
+//citations
+import CitationStrip from "../components/citations/CitationStrip";
+import CitationPane from "../components/citations/CitationPane";
+import type { Citation } from "@/types/chats";
+
+
 const ChatInterface: React.FC<ChatInterfaceProps> = ({
   messages,
   onSendMessage,
@@ -32,7 +39,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   chatTitle = "New Chat",
   onShareChat,
   onStopGeneration,
-  showCentered = false
+  showCentered = false,
+  isCollapsed = false
 }) => {
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -136,28 +144,48 @@ const handleFeedback = async (messageId: string, type: 'up' | 'down') => {
       </div>
       <span className="text-sm">Thinking...</span>
     </div>;
+
   const isCentered = showCentered && messages.length === 0;
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [refPaneOpen, setRefPaneOpen] = useState(false);
+  const [paneCitations, setPaneCitations] = useState<Citation[]>([]);
+  const openRefs = (cits: Citation[]) => {
+    if (!cits?.length) return;
+    setPaneCitations(cits);
+    setRefPaneOpen(true);
+  };
+
   
   return <div className="flex-1 flex flex-col h-screen bg-chat-background">
 
       {/* Header */}
-      <div className="border-b border-chat-border p-4 bg-card/50 backdrop-blur-xl sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto flex items-center justify-between">
-          <h1 className="text-xl font-semibold text-foreground flex items-center">
-            <Sparkles className="w-5 h-5 mr-2 text-muted-foreground" />
-            {chatTitle}
-          </h1>
-          <div className="flex items-center space-x-4 ml-auto">
-            <span className="text-sm text-muted-foreground">
-              {messages.length} messages
-            </span>
-            {messages.length > 0 && onShareChat && <Button variant="outline" size="sm" onClick={handleShare} className="h-8 px-3 text-xs">
-                <Share2 className="w-3 h-3 mr-1" />
-                Share
-              </Button>}
+      <div
+        className={`sticky top-0 z-10 border-b border-chat-border p-4 bg-card/50 backdrop-blur-xl transition-all duration-300 ${isCollapsed ? "pl-16" : "pl-64"} sm:pl-4`}
+      >
+          <div className="max-w-4xl mx-auto flex items-center justify-between">
+            <h1 className="text-xl font-semibold text-foreground flex items-center">
+              <Sparkles className="w-5 h-5 mr-2 text-muted-foreground" />
+              {chatTitle}
+            </h1>
+            <div className="flex items-center space-x-4 ml-auto">
+              <span className="text-sm text-muted-foreground">
+                {messages.length} messages
+              </span>
+              {messages.length > 0 && onShareChat && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleShare}
+                  className="h-8 px-3 text-xs"
+                >
+                  <Share2 className="w-3 h-3 mr-1" />
+                  Share
+                </Button>
+              )}
+            </div>
           </div>
         </div>
-      </div>
 
       {/* Messages */}
             <ScrollArea className={cn("flex-1", isCentered ? "flex items-center justify-center" : "px-20 py-4")}>
@@ -205,6 +233,16 @@ const handleFeedback = async (messageId: string, type: 'up' | 'down') => {
                         </p>
                       )}
                    </div>
+
+                    {/* References count / chips */}
+                    {message.role === "assistant" &&
+                      Array.isArray(message.citations) &&
+                      message.citations.length > 0 && (
+                        <div className="mt-2">
+                          <CitationStrip citations={message.citations} onOpen={openRefs} />
+                        </div>
+                    )}
+
                   {/* Message Actions */}
                   <div className={cn("flex items-center mt-1 px-0 opacity-0 group-hover:opacity-100 transition-all duration-200", message.role === 'user' ? "justify-end" : "justify-start")}>
                     <div className="flex items-center space-x-1">
@@ -269,6 +307,13 @@ const handleFeedback = async (messageId: string, type: 'up' | 'down') => {
             </p>
           </div>
         </div>}
+
+      <CitationPane
+        open={refPaneOpen}
+        citations={paneCitations}
+        onClose={() => setRefPaneOpen(false)}
+      />
+
     </div>;
 };
 export default ChatInterface;
