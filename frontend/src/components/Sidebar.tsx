@@ -92,6 +92,7 @@ const formatTime = (date: Date) => {
           <div className="flex items-center justify-between">
             {!isCollapsed && (
               <div className="flex items-center gap-2">
+                <img src={logoImage} alt="Logo" className="w-10 h-10 rounded-sm" />
                 <h2 className="font-semibold text-sidebar-foreground text-sm"> </h2>
               </div>
             )}

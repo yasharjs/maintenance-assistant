@@ -36,12 +36,9 @@ import Sidebar from "../components/Sidebar";
 import type { Chat } from "@/types/chats";
 
 // Roles from old Chat.tsx
-const [ASSISTANT, TOOL, ERROR] = ['assistant', 'tool', 'error'];
-
-let assistantMessage = {} as ChatMessage;
-let toolMessage = {} as ChatMessage;
-let assistantContent = '';
-let latestCitations: any[] = [];
+const ASSISTANT = "assistant";
+const TOOL = "tool";
+const ERROR = "error";
 
 // Parse citations from tool messages (for UI if needed later)
 const parseCitationFromMessage = (message: ChatMessage) => {
@@ -200,15 +197,16 @@ const mappedChats: Chat[] = (chats || []).map(conv => {
         ? conv.messages[0].content
         : "New Chat";
   }
+    const lastMsg =
+    Array.isArray(conv.messages) && conv.messages.length
+      ? conv.messages[conv.messages.length - 1]
+      : undefined;
+
   return {
     id: conv.id,
     title: truncateString(safeTitle, 40), // always a string now
     lastMessage: truncateString(
-      normalizeContent(
-        typeof conv.messages?.[conv.messages.length - 1]?.content === "string"
-          ? conv.messages[conv.messages.length - 1]?.content
-          : ""
-      ),
+      normalizeContent(typeof lastMsg?.content === "string" ? lastMsg.content : ""),
       35
     ),
     timestamp: conv.date ? new Date(conv.date) : new Date(),
@@ -218,7 +216,8 @@ const mappedChats: Chat[] = (chats || []).map(conv => {
         typeof m.content === "string" ? m.content : ""
       ),
       role: m.role as "user" | "assistant",
-      timestamp: m.date ? new Date(m.date) : new Date()
+      timestamp: m.date ? new Date(m.date) : new Date(),
+      citations: Array.isArray((m as any).citations) ? (m as any).citations : []
     }))
   };
 });
@@ -322,10 +321,10 @@ const handleSelectChat = async (chatId: string) => {
   let conversation = currentChat;
   let request: ConversationRequest;
 
-  assistantMessage = { id: '', role: ASSISTANT, content: '', date: new Date().toISOString() };
-  toolMessage = {} as ChatMessage;
-  assistantContent = '';
-  latestCitations = [];
+let assistantMessage: ChatMessage = { id: "", role: ASSISTANT, content: "", date: new Date().toISOString() };
+let toolMessage: ChatMessage = {} as ChatMessage;
+let assistantContent = "";
+let latestCitations: any[] = [];
 
   try {
     // Create new or use existing conversation
@@ -373,107 +372,64 @@ const handleSelectChat = async (chatId: string) => {
 
         for (const obj of objects) {
           try {
-            if (!obj || obj === '{}') continue;
-            runningText += obj;
-            const result = JSON.parse(runningText);
-            finalResult = result; // keep updating finalResult
-            const serverId = result?.history_metadata?.conversation_id;
-            if (serverId && conversation.id !== serverId) {
-              conversation.id = serverId;
-              setActiveChat(serverId);
-              appStateContext?.dispatch({ type: 'UPDATE_CURRENT_CHAT', payload: conversation });
-            }
+            if (obj && obj !== '{}') {
+              runningText += obj;
+              const result = JSON.parse(runningText);
+              finalResult = result;
 
-            runningText = ''; // parsed successfully, clear buffer
+              // Capture citations
+              if (Array.isArray(result.citations)) latestCitations = result.citations;
 
-            // 1) capture citations if present
-            if (result.citations) latestCitations = result.citations;
-
-            // 2) handle token-wise deltas (OpenAI-like)
-            const maybeDelta = result?.choices?.[0]?.delta?.content ?? '';
-            if (typeof maybeDelta === 'string' && maybeDelta.length > 0) {
-              const scheduleFlush = () => {
-              if (framePending) return;
-              framePending = true;
-              requestAnimationFrame((now) => {
-                framePending = false;
-                // optional: cap to ~30–60fps; here ~30fps:
-                if (now - lastFlushTs < 33) { scheduleFlush(); return; }
-                lastFlushTs = now;
-
-                if (!assistantInserted) {
-                  assistantMessage = {
-                    id: result?.id || uuid(),
-                    role: ASSISTANT,
-                    content: assistantContent,
-                    date: new Date().toISOString(),
-                    ...(latestCitations.length ? { citations: latestCitations } : {})
-                  };
-                  conversation!.messages.push(assistantMessage);
-                } else {
-                  assistantMessage.content = assistantContent;
-                }
-                appStateContext?.dispatch({ type: "UPDATE_CURRENT_CHAT", payload: conversation });
-  });
-};
-            }
-
-            // 3) handle batched messages array (your current backend format)
-            if (result.choices?.length > 0 && Array.isArray(result.choices[0].messages)) {
-              result.choices[0].messages.forEach((msg: any) => {
-                if (msg.role === ASSISTANT) {
-                  assistantContent += msg.content || '';
-                  if (!assistantInserted) {
-                    assistantMessage = { ...msg, id: msg.id || uuid(), content: assistantContent };
-                    if (latestCitations.length > 0) (assistantMessage as any).citations = latestCitations;
-                    conversation!.messages.push(assistantMessage);
-                    assistantInserted = true;
-                  } else {
+              if (result.choices?.length > 0) {
+                result.choices[0].messages.forEach((msg: any) => {
+                  if (msg.role === ASSISTANT) {
+                    assistantContent += msg.content;
+                    assistantMessage = {...assistantMessage, ...msg, id: msg.id || uuid()}; 
                     assistantMessage.content = assistantContent;
-                  }
 
-                  if (!seenAssistantToken) {
-                    seenAssistantToken = true;
+                  if (Array.isArray(latestCitations) && latestCitations.length > 0) {
+                      (assistantMessage as any).citations = latestCitations;
                   }
-                  appStateContext?.dispatch({ type: 'UPDATE_CURRENT_CHAT', payload: conversation });
-                }
-                if (msg.role === TOOL) {
-                  toolMessage = { ...msg, id: msg.id || uuid() };
-                  // Insert tool message immediately if you want it visible during stream:
-                  conversation!.messages.push(toolMessage);
-                  appStateContext?.dispatch({ type: 'UPDATE_CURRENT_CHAT', payload: conversation });
-                }
-              });
+                  }
+                    if (msg.role === TOOL) {
+                      toolMessage = { ...msg, id: msg.id || uuid() };
+                      // NEW: try to extract citations from tool JSON
+                      try {
+                        if (typeof msg.content === "string") {
+                          const parsed = JSON.parse(msg.content);
+                          if (Array.isArray(parsed?.citations)) {
+                            latestCitations = parsed.citations;
+                          }
+                        }
+                      } catch {}
+                    }
+                });
+              }
+              runningText = '';
             }
-
           } catch (e) {
-            // Incomplete JSON → keep buffering
             if (!(e instanceof SyntaxError)) throw e;
           }
         }
       }
       // Title fallback logic
-    // AFTER
-      if (finalResult?.history_metadata?.conversation_id) {
-        const serverId = finalResult.history_metadata.conversation_id;
-
-        // If this chat was just created locally or we haven't yet adopted the server ID, switch to it
-        if (conversation.id !== serverId) {
-          conversation.id = serverId;
-          setActiveChat(serverId);
-        }
-
-        // You can still update title/date the first time you see them
-        if (finalResult.history_metadata.title?.trim()) {
-          conversation.title = finalResult.history_metadata.title.trim();
-        }
-        if (finalResult.history_metadata.date) {
-          conversation.date = finalResult.history_metadata.date;
-        }
+      if (!currentChat && finalResult.history_metadata) {
+        conversation.id = finalResult.history_metadata.conversation_id;
+        conversation.title =
+          finalResult.history_metadata.title?.trim() ||
+          content.slice(0, 50) + (content.length > 50 ? "..." : "");
+        conversation.date = finalResult.history_metadata.date;
       }
 
+      // Append tool message first if present
+      if (Object.keys(toolMessage).length > 0) {
+        conversation.messages.push(toolMessage);
+      }
 
-   
+      if (assistantMessage.content) {
+        conversation.messages.push(assistantMessage);
+      }
+
       appStateContext?.dispatch({ type: 'UPDATE_CURRENT_CHAT', payload: conversation });
       appStateContext?.dispatch({ type: 'UPDATE_CHAT_HISTORY', payload: conversation });
       try {
@@ -550,18 +506,21 @@ const [isCollapsed, setIsCollapsed] = useState(false);
               id: m.id,
               content: normalizeContent(m.content),
               role: m.role as "user" | "assistant",
-              timestamp: m.date ? new Date(m.date) : new Date()
+              timestamp: m.date ? new Date(m.date) : new Date(),
+              // keep citations if present (your stream sets them on assistantMessage)
+              citations: Array.isArray((m as any).citations) ? (m as any).citations : []
             })) || []}
             onSendMessage={handleSendMessage}
             isLoading={isLoading}
-            chatTitle={
-              currentChat?.title?.trim() ||
-              settings?.ui?.chat_title?.trim() ||
-              "New Chat"
-            }
+              chatTitle={
+                currentChat?.title?.trim() ||
+                settings?.ui?.chat_title?.trim() ||
+                "New Chat"
+              }
             onShareChat={() => activeChat && handleShareChat(activeChat)}
             onStopGeneration={() => setIsLoading(false)}
             showCentered={!currentChat}
+            isCollapsed={isCollapsed}
           />
         </div>
       </div>

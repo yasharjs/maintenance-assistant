@@ -27,6 +27,12 @@ import { cn } from "../lib/utils";
 import Markdown from "./ui/Markdown";
 import type { ChatInterfaceProps } from "@/types/chats";
 
+//citations
+import CitationStrip from "../components/citations/CitationStrip";
+import CitationPane from "../components/citations/CitationPane";
+import type { Citation } from "@/types/chats";
+
+
 const ChatInterface: React.FC<ChatInterfaceProps> = ({
   messages,
   onSendMessage,
@@ -34,7 +40,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   chatTitle = "New Chat",
   onShareChat,
   onStopGeneration,
-  showCentered = false
+  showCentered = false,
+  isCollapsed = false
 }) => {
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -178,7 +185,18 @@ const handleFeedback = async (messageId: string, type: 'up' | 'down') => {
       </div>
       <span className="text-sm">Thinking...</span>
     </div>;
+
   const isCentered = showCentered && messages.length === 0;
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [refPaneOpen, setRefPaneOpen] = useState(false);
+  const [paneCitations, setPaneCitations] = useState<Citation[]>([]);
+  const openRefs = (cits: Citation[]) => {
+    if (!cits?.length) return;
+    setPaneCitations(cits);
+    setRefPaneOpen(true);
+  };
+
   
   return <div className="flex-1 flex flex-col h-screen bg-chat-background">
 
@@ -264,6 +282,16 @@ const handleFeedback = async (messageId: string, type: 'up' | 'down') => {
                         </p>
                       )}
                    </div>
+
+                    {/* References count / chips */}
+                    {message.role === "assistant" &&
+                      Array.isArray(message.citations) &&
+                      message.citations.length > 0 && (
+                        <div className="mt-2">
+                          <CitationStrip citations={message.citations} onOpen={openRefs} />
+                        </div>
+                    )}
+
                   {/* Message Actions */}
                   <div className={cn("flex items-center mt-1 px-0 opacity-0 group-hover:opacity-100 transition-all duration-200", message.role === 'user' ? "justify-end" : "justify-start")}>
                     <div className="flex items-center space-x-1">
@@ -345,6 +373,13 @@ const handleFeedback = async (messageId: string, type: 'up' | 'down') => {
             </p>
           </div>
         </div>}
+
+      <CitationPane
+        open={refPaneOpen}
+        citations={paneCitations}
+        onClose={() => setRefPaneOpen(false)}
+      />
+
     </div>;
 };
 export default ChatInterface;

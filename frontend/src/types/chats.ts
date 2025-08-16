@@ -6,6 +6,7 @@ export interface Message {
   content: string;
   role: "user" | "assistant";
   timestamp: Date;
+  citations?: Citation[]; 
 }
 
 export interface Chat {
@@ -38,6 +39,7 @@ export interface ChatInterfaceProps {
   onShareChat?: () => void;
   onStopGeneration?: () => void;
   showCentered?: boolean;
+  isCollapsed?: boolean;
 }
 
 export interface ShareDialogProps {
@@ -46,3 +48,22 @@ export interface ShareDialogProps {
   chatId: string;
   chatTitle: string;
 }
+
+export type Citation = {
+  id?: string;
+  title?: string;
+  url?: string;        // image or pdf-to-image preview URL
+  filepath?: string;
+  part_index?: number;
+  chunk_id?: string;
+  locator?: string;    // e.g., "L10–L20" or "p. 16"
+};
+
+// If you already have ChatMessageUI/Message type, add:
+export type ChatMessageUI = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  timestamp: Date;
+  citations?: Citation[];   // <-- new (optional)
+};
