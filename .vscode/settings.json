@@ -8,5 +8,9 @@
     "reportArgumentType": "warning"
   },
   "python.analysis.autoSearchPaths": true,
-  "python.analysis.useLibraryCodeForTypes": true
+  "python.analysis.useLibraryCodeForTypes": true,
+  "css.validate": false,
+  "editor.quickSuggestions": {
+    "strings": true
+  }
 }

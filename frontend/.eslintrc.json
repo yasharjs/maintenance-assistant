@@ -16,14 +16,7 @@
     "jest": true
   },
   "rules": {
-    // "prettier/prettier": "error",
-    "prettier/prettier": [
-      "error",
-      {},
-      {
-        "usePrettierrc": false
-      }
-    ],
+    "prettier/prettier": ["off", {}, { "usePrettierrc": false }],
     "quote-props": [2, "as-needed"],
     "comma-dangle": "error",
     "no-console": ["warn", { "allow": ["warn", "error"] }],
@@ -34,19 +27,19 @@
       "error",
       {
         "ObjectExpression": "always",
-        "ObjectPattern": { "multiline": "as-needed" },
+        "ObjectPattern": { "multiline": true },
         "ImportDeclaration": "never",
         "ExportDeclaration": { "multiline": true, "minProperties": 3 }
       }
     ],
-    "object-curly-spacing": ["error", "as-needed", { "objectsInObjects": true }],
+    "object-curly-spacing": ["error", "always", { "objectsInObjects": true }],
     "no-underscore-dangle": 0,
     "jsx-a11y/click-events-have-key-events": 0,
     "jsx-a11y/anchor-is-valid": 0,
     "no-await-in-loop": 0,
     "no-unused-expressions": ["error", { "allowShortCircuit": true, "allowTernary": true }],
     "arrow-parens": ["error", "as-needed"],
-    "no-unused-vars": "off", // Turn off the base rule and use @typescript-eslint/no-unused-vars
+    "no-unused-vars": "off",
     "@typescript-eslint/no-unused-vars": [
       "error",
       {
@@ -74,21 +67,15 @@
       "error",
       {
         "groups": [
-          // Packages `react` related packages come first.
           ["^react", "^@?\\w"],
-          // Internal packages.
           ["^(@|components)(/.*|$)"],
-          // Side effect imports.
           ["^\\u0000"],
-          // Parent imports. Put `..` last.
           ["^\\.\\.(?!/?$)", "^\\.\\./?$"],
-          // Other relative imports. Put same-folder imports and `.` last.
           ["^\\./(?=.*/)(?!/?$)", "^\\.(?!/?$)", "^\\./?$"],
-          // Style imports.
           ["^.+\\.?(css)$"]
         ]
       }
     ]
   },
-  "ignorePatterns": ["node_modules/", "build/", "dist/", "public/", "*.config.ts"]
+  "ignorePatterns": ["node_modules/", "build/", "dist/", "public/", "*.config.ts", "src_old/"]
 }

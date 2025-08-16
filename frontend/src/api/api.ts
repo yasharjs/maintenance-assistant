@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable object-curly-newline */
 import { chatHistorySampleData } from '../constants/chatHistory'
 
 import { ChatMessage, Conversation, ConversationRequest, CosmosDBHealth, CosmosDBStatus, UserInfo } from './models'
@@ -338,20 +340,23 @@ export const historyEnsure = async (): Promise<CosmosDBHealth> => {
   return response
 }
 
-export const frontendSettings = async (): Promise<Response | null> => {
-  const response = await fetch('/frontend_settings', {
-    method: 'GET'
-  })
-    .then(res => {
-      return res.json()
-    })
-    .catch(_err => {
-      console.error('There was an issue fetching your data.')
-      return null
-    })
+import { FrontendSettings } from "./models";
 
-  return response
-}
+export const frontendSettings = async (): Promise<FrontendSettings | null> => {
+  try {
+    const res = await fetch('/frontend_settings', { method: 'GET' });
+    if (!res.ok) {
+      console.error("Failed to fetch frontend settings");
+      return null;
+    }
+    const data: FrontendSettings = await res.json();
+    return data;
+  } catch (err) {
+    console.error('There was an issue fetching your data.', err);
+    return null;
+  }
+};
+
 export const historyMessageFeedback = async (messageId: string, feedback: string): Promise<Response> => {
   const response = await fetch('/history/message_feedback', {
     method: 'POST',
