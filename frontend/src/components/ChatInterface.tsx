@@ -160,36 +160,37 @@ const handleFeedback = async (messageId: string, type: 'up' | 'down') => {
   return <div className="flex-1 flex flex-col h-screen bg-chat-background">
 
       {/* Header */}
-      <div
-        className={`sticky top-0 z-10 border-b border-chat-border p-4 bg-card/50 backdrop-blur-xl transition-all duration-300 ${isCollapsed ? "pl-16" : "pl-64"} sm:pl-4`}
-      >
-          <div className="max-w-4xl mx-auto flex items-center justify-between">
-            <h1 className="text-xl font-semibold text-foreground flex items-center">
-              <Sparkles className="w-5 h-5 mr-2 text-muted-foreground" />
-              {chatTitle}
-            </h1>
-            <div className="flex items-center space-x-4 ml-auto">
-              <span className="text-sm text-muted-foreground">
-                {messages.length} messages
-              </span>
-              {messages.length > 0 && onShareChat && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleShare}
-                  className="h-8 px-3 text-xs"
-                >
-                  <Share2 className="w-3 h-3 mr-1" />
-                  Share
-                </Button>
-              )}
-            </div>
+      <div className="sticky top-0 z-10 border-b border-chat-border p-3 bg-card/50 backdrop-blur-xl">
+        <div
+          className={cn(
+            "flex items-center justify-between w-full px-4 sm:px-6 md:px-8 lg:px-12",
+            // when empty/centered: truly centered
+            isCentered ? "mx-auto [--thread-content-margin:theme(spacing.4)] sm:[--thread-content-margin:theme(spacing.6)] xl:[--thread-content-margin:theme(spacing.12)] px-[--thread-content-margin]"
+                      // when there are messages: anchor left (no huge gutter)
+                      : "ml-0 mr-auto [--thread-content-margin:theme(spacing.4)] sm:[--thread-content-margin:theme(spacing.6)] xl:[--thread-content-margin:theme(spacing.12)] px-[--thread-content-margin]"
+          )}
+        >
+          <h1 className="text-xl font-semibold text-foreground flex items-center">
+            <Sparkles className="w-5 h-5 mr-2 text-muted-foreground" />
+            {chatTitle}
+          </h1>
+          <div className="flex items-center space-x-4 ml-auto">
+            <span className="text-sm text-muted-foreground">{messages.length} messages</span>
+            {messages.length > 0 && onShareChat && (
+              <Button variant="outline" size="sm" onClick={handleShare} className="h-8 px-3 text-xs">
+                <Share2 className="w-3 h-3 mr-1" />
+                Share
+              </Button>
+            )}
           </div>
         </div>
+      </div>
 
       {/* Messages */}
-            <ScrollArea className={cn("flex-1", isCentered ? "flex items-center justify-center" : "px-20 py-4")}>
-              <div className={cn("max-w-4xl w-full", isCentered ? "mx-auto" : "space-y-8 ml-0")}>
+            <ScrollArea
+              className={cn("flex-1", isCentered ? "flex items-center justify-center" : "py-4 px-4 sm:px-6 md:px-8 lg:px-12")}
+            >
+              <div className={cn("w-full space-y-8 px-4 sm:px-6 md:px-8 lg:px-12", isCentered && "mx-auto")}>
 
           {messages.length === 0 && isCentered ? <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-8 py-0 my-[100px]">
               <div className="text-center space-y-4">
@@ -292,8 +293,8 @@ const handleFeedback = async (messageId: string, type: 'up' | 'down') => {
       </ScrollArea>
 
       {/* Input Area - Only show when not centered or when there are messages */}
-      {!isCentered && <div className="border-t border-chat-border bg-card/50 backdrop-blur-xl px-20 py-4">
-          <div className="max-w-4xl mx-auto">
+      {!isCentered && <div className="border-t border-chat-border bg-card/50 backdrop-blur-xl py-4 px-4 sm:px-6 md:px-8 lg:px-12">
+  <div className="w-full">
             <form onSubmit={handleSubmit} className="relative">
               <div className="relative group">
                 <Textarea ref={textareaRef} value={input} onChange={e => setInput(e.target.value)} onKeyDown={handleKeyDown} placeholder="Ask anything..." className={cn("min-h-[60px] max-h-[200px] pr-14 resize-none transition-all duration-200", "bg-chat-input border-chat-border focus:ring-ring focus:ring-2", "hover:shadow-lg hover:border-border", "rounded-2xl text-base leading-relaxed", "placeholder:text-muted-foreground/60")} disabled={isLoading} />

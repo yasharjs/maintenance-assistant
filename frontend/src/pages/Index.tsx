@@ -34,6 +34,7 @@ import { AppStateContext } from "../state/AppProvider";
 import { useTheme } from "../components/ThemeProvider";
 import Sidebar from "../components/Sidebar";
 import type { Chat } from "@/types/chats";
+import { cn } from "@/lib/utils";
 
 // Roles from old Chat.tsx
 const ASSISTANT = "assistant";
@@ -478,7 +479,7 @@ const [isCollapsed, setIsCollapsed] = useState(false);
         </Button>
       )}
 
-      <div className="flex flex-1">
+      <div className="flex h-screen w-full">
         <Sidebar
           chats={mappedChats}
           activeChat={activeChat}
@@ -492,7 +493,7 @@ const [isCollapsed, setIsCollapsed] = useState(false);
           onToggleDarkMode={() => setTheme(theme === "dark" ? "light" : "dark")}
           onShareChat={handleShareChat}
         />
-        <div className="flex-1 flex">
+        <div className="flex-1 min-w-0 flex">
           <ChatInterface
             messages={currentChat?.messages?.map(m => ({
               id: m.id,

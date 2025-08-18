@@ -137,24 +137,19 @@ body {
   color: hsl(var(--foreground));
 }
 
-/* Sidebar background */
-.sidebar,
-[class*="Sidebar"] {
-  background-color: hsl(var(--app-background));
-  color: hsl(var(--foreground));
-}
-
 /* Chat background */
 .bg-chat-background {
   background-color: hsl(var(--app-background)) !important;
 }
 
-/* Top & bottom bars (header/footer) */
-.top-bar,
-.bottom-bar,
-.border-chat-border {
-  background-color: hsl(var(--app-background)) !important;
-}
+/* Chat message styles */
+ .top-bar,
+ .bottom-bar {
+   background-color: hsl(var(--app-background)) !important;
+ }
+ .border-chat-border {
+   border-color: hsl(var(--chat-border)) !important;
+ }
 
 
 }
