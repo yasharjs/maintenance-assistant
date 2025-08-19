@@ -151,5 +151,56 @@ body {
    border-color: hsl(var(--chat-border)) !important;
  }
 
+/* Ensure the sidebar stays fixed width */
+.sidebar-container {
+  flex-shrink: 0;
+  transition: width 0.3s ease-in-out;
+}
+
+/* Center the chat content when needed */
+.chat-container {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+.chat-content {
+  width: 100%;
+  transition: max-width 0.3s ease-in-out;
+}
+
+/* When centered (no active chat), limit max width */
+.chat-content.centered {
+  max-width: 1024px; /* 4xl */
+}
+
+/* When there's an active chat, use full width */
+.chat-content.full {
+  max-width: none;
+}
+
+/* Override any conflicting sidebar styles */
+[data-sidebar="sidebar"] {
+  position: relative !important;
+  width: 100% !important;
+}
+
+/* Ensure proper flex behavior */
+.main-layout {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.main-layout .sidebar-wrapper {
+  flex-shrink: 0;
+}
+
+.main-layout .content-wrapper {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  justify-content: center;
+}
 
 }

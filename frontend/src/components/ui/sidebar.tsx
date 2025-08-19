@@ -179,7 +179,7 @@ const Sidebar = React.forwardRef<
     },
     ref
   ) => {
-    const { isMobile, openMobile, setOpenMobile } = useSidebar();
+    const { isMobile, state, openMobile, setOpenMobile } = useSidebar();
 
     if (collapsible === "none") {
       return (
@@ -218,29 +218,35 @@ const Sidebar = React.forwardRef<
 
     return (
       <div
-        className={cn(
-          // takes its natural place in the flex row
-          "relative z-10 hidden md:flex h-svh shrink-0 w-[--sidebar-width]",
-          // animate width changes smoothly (collapse/offcanvas/icon)
-          "transition-[width] duration-300 ease-in-out",
-          // when collapsed in offcanvas mode, take no space
-          "group-data-[collapsible=offcanvas]:w-0",
-          // support icon-collapse width if you use it
-          variant === "floating" || variant === "inset"
-            ? "p-2 group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)_+_theme(spacing.4))]"
-            : "group-data-[collapsible=icon]:w-[--sidebar-width-icon]",
-          side === "right" ? "order-last" : "",
-          className
-        )}
-        {...props}
+        ref={ref}
+        className="peer hidden md:block text-sidebar-foreground"
+        data-state={state}
+        data-collapsible={state === "collapsed" ? collapsible : ""}
+        data-variant={variant}
+        data-side={side}
       >
+        {/* This is what handles the sidebar gap on desktop */}
         <div
-          data-sidebar="sidebar"
           className={cn(
-            "flex h-full w-full flex-col bg-sidebar" // no border, no extra right padding
+            "duration-300 fixed inset-y-0 z-10 hidden h-svh w-[--sidebar-width] bg-chat-background-[left,right,width,transform] ease-in-out md:flex",
+            side === "left"
+              ? "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]"
+              : "right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]",
+            // Adjust the padding for floating and inset variants.
+            variant === "floating" || variant === "inset"
+              ? "p-2 group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)_+_theme(spacing.4)_+2px)]"
+              : "group-data-[collapsible=icon]:w-[--sidebar-width-icon]",
+            className,
+            "bg-transparent" // Force background class
           )}
+          {...props}
         >
-          {children}
+          <div
+            data-sidebar="sidebar"
+            className="flex h-full w-full flex-col bg-sidebar group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:border-sidebar-border group-data-[variant=floating]:shadow"
+          >
+            {children}
+          </div>
         </div>
 
       </div>

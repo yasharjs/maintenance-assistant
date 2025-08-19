@@ -1,30 +1,23 @@
-/* eslint-disable object-curly-spacing */
-/* Sidebar.tsx */
-/* eslint-disable arrow-parens */
-/* eslint-disable object-curly-newline */
-/* eslint-disable simple-import-sort/imports */
-/* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable jsx-a11y/no-autofocus */
 /* eslint-disable jsx-a11y/no-static-element-interactions */
-/* eslint-disable indent */
-/* eslint-disable react/jsx-indent */
-/* eslint-disable jsx-a11y/label-has-associated-control */
+/* eslint-disable @typescript-eslint/no-unused-vars */
+
 
 import React, { useState } from 'react';
-import {
-  Plus, Search, MoreHorizontal, Trash2, Edit3, MessageSquare,
-  Settings, Moon, Sun, ChevronLeft, ChevronRight, Share 
-} from 'lucide-react';
+import { ChevronLeft, ChevronRight, Edit3, MessageSquare,
+  Moon, MoreHorizontal,   Plus, Search,   Settings, Share, 
+  Sun, Trash2 } from 'lucide-react';
+
+import logoImage from '@/assets/logo.png';
+import type { SidebarProps } from "@/types/chats";
 
 import { useTheme } from '../components/ThemeProvider';
 import { Button } from '../components/ui/button';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../components/ui/dropdown-menu';
 import { Input } from '../components/ui/input';
 import { ScrollArea } from '../components/ui/scroll-area';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../components/ui/dropdown-menu';
-import { Sidebar as UISidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarHeader, SidebarFooter, useSidebar } from '../components/ui/sidebar';
+import { Sidebar as UISidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent, SidebarHeader, useSidebar } from '../components/ui/sidebar';
 import { cn } from '../lib/utils';
-import logoImage from '@/assets/logo.png';
-import type {SidebarProps } from "@/types/chats";
 
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -67,29 +60,30 @@ const Sidebar: React.FC<SidebarProps> = ({
     setRenameValue('');
   };
 
-const formatTime = (date: Date) => {
-  const now = new Date();
-  let days = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
+  const formatTime = (date: Date) => {
+    const now = new Date();
+    let days = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
 
-  if (days < 0) days = 0;
+    if (days < 0) days = 0;
 
-  if (days === 0) return "Today";
-  if (days === 1) return "Yesterday";
-  if (days <= 5) return `${days} days ago`;
-  return "7+ days ago";
-};
+    if (days === 0) return "Today";
+    if (days === 1) return "Yesterday";
+    if (days <= 5) return `${days} days ago`;
+    return "7+ days ago";
+  };
 
 
   return (
     <UISidebar
       className={cn(
-        "transition-all duration-300 flex flex-col",
-        isCollapsed ? "w-16" : "w-80"
+        "transition-all duration-300 flex flex-col bg-sidebar-background",
+        isCollapsed ? "w-16" : "w-80",
+        "border-r-0" // Remove right border
       )}
     >
       {/* Header */}
       <SidebarHeader>
-        <div className="p-4 space-y-4 border-b border-sidebar-border">
+        <div className="p-4 space-y-4 border-b border-sidebar-border/0"> {/* Transparent bottom border */}
           <div className="flex items-center justify-between">
             {!isCollapsed && (
               <div className="flex items-center gap-2">
@@ -131,12 +125,14 @@ const formatTime = (date: Date) => {
           )}
         </div>
       </SidebarHeader>
+
+
       {/* Chat List */}
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupContent>
             {!isCollapsed ? (
-              <ScrollArea className="flex-1 [&>[data-radix-scroll-area-viewport]]:bg-transparent [&>[data-radix-scroll-area-scrollbar]]:bg-sidebar-accent/20 [&>[data-radix-scroll-area-thumb]]:bg-sidebar-border hover:[&>[data-radix-scroll-area-thumb]]:bg-sidebar-foreground/30 [&>[data-radix-scroll-area-scrollbar]]:w-2 [&>[data-radix-scroll-area-scrollbar]]:border-0">
+              <ScrollArea className="flex-1 [&>[data-radix-scroll-area-viewport]]:bg-sidebar-background [&>[data-radix-scroll-area-scrollbar]]:bg-transparent [&>[data-radix-scroll-area-thumb]]:bg-sidebar-border/20 hover:[&>[data-radix-scroll-area-thumb]]:bg-sidebar-foreground/10 [&>[data-radix-scroll-area-scrollbar]]:w-2 [&>[data-radix-scroll-area-scrollbar]]:border-0">
                 <div className="p-2 w-full">
                   {filteredChats.length === 0 ? (
                     <div className="text-center py-8 text-sidebar-foreground/50">
@@ -152,10 +148,10 @@ const formatTime = (date: Date) => {
                           activeChat === chat.id ? "bg-sidebar-accent" : "hover:bg-sidebar-accent/50"
                         )}
                       >
-                          <div
-                            className="flex items-start justify-start p-3 cursor-pointer w-full"
-                            onClick={() => onSelectChat(chat.id)}
->
+                        <div
+                          className="flex items-start justify-start p-3 cursor-pointer w-full"
+                          onClick={() => onSelectChat(chat.id)}
+                        >
                           <div className="flex-1 min-w-0 mr-2 text-left">
                             {renamingId === chat.id ? (
                               <Input
@@ -180,7 +176,7 @@ const formatTime = (date: Date) => {
                                   {chat.lastMessage}
                                 </p>
                                 <p className="text-xs text-muted-foreground mt-1">
-                                {formatTime(chat.timestamp)}
+                                  {formatTime(chat.timestamp)}
                                 </p>
                               </>
                             )}
@@ -205,7 +201,7 @@ const formatTime = (date: Date) => {
                               <DropdownMenuItem
                                 onClick={() => onShareChat(chat.id)}
                                 className="text-sm"
-                                >
+                              >
                                 <Share className="w-4 h-4 mr-2" />
                                 Share
                               </DropdownMenuItem>
@@ -222,7 +218,7 @@ const formatTime = (date: Date) => {
                 </div>
               </ScrollArea>
             ) : (
-              <ScrollArea className="flex-1 p-2">
+              <ScrollArea className="flex-1 p-2 bg-sidebar-background">
                 <div className="space-y-2">
                   {chats.slice(0, 5).map(chat => (
                     <Button
@@ -247,7 +243,7 @@ const formatTime = (date: Date) => {
 
       {/* Footer / Settings */}
       <SidebarFooter>
-        <div className="p-4 border-t border-sidebar-border/30">
+        <div className="p-4 border-t border-sidebar-border/0"> {/* Transparent top border */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
