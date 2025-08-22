@@ -1,11 +1,11 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from azure.cosmos.aio import CosmosClient
 from azure.cosmos import exceptions
   
 class CosmosConversationClient():
     
-    def __init__(self, cosmosdb_endpoint: str, credential: any, database_name: str, container_name: str, enable_message_feedback: bool = False):
+    def __init__(self, cosmosdb_endpoint: str, credential: any, database_name: str, container_name: str, enable_message_feedback: bool = False): # type: ignore
         self.cosmosdb_endpoint = cosmosdb_endpoint
         self.credential = credential
         self.database_name = database_name
@@ -132,12 +132,14 @@ class CosmosConversationClient():
             'id': uuid,
             'type': 'message',
             'userId' : user_id,
-            'createdAt': datetime.utcnow().isoformat(),
-            'updatedAt': datetime.utcnow().isoformat(),
+            'createdAt': datetime.now(timezone.utc).isoformat(),
+            'updatedAt': datetime.now(timezone.utc).isoformat(),
             'conversationId' : conversation_id,
             'role': input_message['role'],
             'content': input_message['content']
         }
+        if 'citations' in input_message:
+            message['citations'] = input_message['citations']
 
         if self.enable_message_feedback:
             message['feedback'] = ''

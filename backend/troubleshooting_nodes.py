@@ -57,7 +57,7 @@ async def context_window_node(state: State, writer: StreamWriter) -> dict:
     )
 
     rewritten_question = state["rewritten"].strip()
-
+    follow_up = state["follow_up"].strip() if "follow_up" in state else ""
     # Step 3: System rules
     TASK_DESCRIPTION = """
         The Maintenance Assistant agent supports technicians in troubleshooting Husky HyPET, Hylectric, and Quadloc machines. It provides step-by-step help with alarms, faults, and procedures, and adapts to all skill levels.
@@ -75,9 +75,10 @@ async def context_window_node(state: State, writer: StreamWriter) -> dict:
         • Include critical checks: jumper settings, spool centering, signal verification, swashplate calibration.
         """
 
-    INTERACTIVITY_RULES = """
+    INTERACTIVITY_RULES = f"""
         • Always end responses with one helpful, clarifying question.
         • If the question is vague, ask for clarification — don't assume.
+        • Use the follow up provided by the routing agent if the query is vague.
         • Use a professional tone that encourages technician confidence.
         """
 
@@ -105,6 +106,9 @@ async def context_window_node(state: State, writer: StreamWriter) -> dict:
 
                         ### Rewritten Question:
                         {rewritten_question}
+
+                        ### ROUTER Follow-Up:
+                        {follow_up}
                     """
 
     async for chunk in llm.astream([

@@ -1,15 +1,80 @@
+/* --- References strip (pill) --- */
 .strip {
-  margin-top: 6px;
+
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
+  flex-wrap: wrap;
 }
+
+/* Pill button — solid, subtle, theme-aware */
+.stripPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 14px;
+  height: 28px;
+  border-radius: 9999px;
+  border: 1px solid var(--cit-border);
+  background: var(--cit-pill-bg);
+  color: var(--cit-pill-fg);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  transition: background .15s ease, border-color .15s ease, transform .02s ease-in-out;
+}
+.stripPill:hover { background: var(--cit-pill-bg-hover); }
+.stripPill:active { transform: translateY(1px); }
+.stripPill:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--cit-focus-ring);
+}
+
+/* Small inline icon */
+.pillIcon {
+  width: 14px;
+  height: 14px;
+  opacity: .9;
+}
+
+/* Count badge (kept subtle, readable) */
+.pillCount {
+  padding: 2px 6px;
+  border-radius: 9999px;
+  border: 1px solid var(--cit-border);
+  background: var(--cit-count-bg);
+  color: var(--cit-count-fg);
+  font-weight: 700;
+  font-size: 12px;
+  line-height: 1;
+}
+
+/* ---- Theme tokens for the strip ---- */
+:global(:root:not(.dark)) {
+  --cit-pill-bg: #ffffff;
+  --cit-pill-bg-hover: #f8fafc;           /* subtle hover */
+  --cit-pill-fg: #0f172a;                 /* slate-900 */
+  --cit-count-bg: #f1f5f9;                /* slate-100 */
+  --cit-count-fg: #0f172a;
+  --cit-focus-ring: rgba(37, 99, 235, .35); /* blue-600 ring */
+}
+
+:global(.dark) {
+  --cit-pill-bg: #0f1115;                 /* match chat sidebar */
+  --cit-pill-bg-hover: #14171c;
+  --cit-pill-fg: #e5e7eb;                 /* text-foreground */
+  --cit-count-bg: #0b0d11;
+  --cit-count-fg: #e5e7eb;
+  --cit-focus-ring: rgba(96, 165, 250, .35); /* blue-400 ring */
+}
+
 
 .countBtn {
   display: inline-flex;
   align-items: center;
   padding: 4px 10px;
-  border: 1px solid var(--border, #d1d1d1);
+  border: 1px solid var(--border, #3c3737);
   border-radius: 8px;
   font-size: 12px;
   font-weight: 600;
@@ -21,36 +86,73 @@
 
 .pane {
   position: fixed;
-  top: 0; right: 0;
-  height: 100%; width: 380px;
-  background: var(--bg, #0b0b0b);
-  color: var(--fg, #e7e7e7);
-  border-left: 1px solid var(--border, #2a2a2a);
+  top: 0;
+  right: 0;
+  height: 100%;
+  /* Responsive width; desktop ~380px, scales down on small screens */
+  width: clamp(300px, 32vw, 420px);
+
+  /* Solid background to match the chat sidebar (no blur/glass) */
+  background: var(--cit-pane-bg);
+  color: var(--cit-fg);
+
+  border-left: 1px solid var(--cit-border);
+  overflow: auto;
   box-shadow: 0 10px 30px rgba(0,0,0,.25);
+
   transform: translateX(100%);
-  transition: transform .18s ease;
-  z-index: 60;
+  transition: transform .2s ease;
+  z-index: 60; /* above overlay */
 }
 .paneOpen { transform: translateX(0); }
 
-.paneHeader {
-  display:flex; justify-content:space-between; align-items:center;
-  padding: 10px 12px; border-bottom: 1px solid var(--border, #2a2a2a);
-  font-size: 14px; font-weight: 600;
+@media (max-width: 640px) {
+  .pane { width: min(92vw, 420px); }
 }
 
+
+.paneHeader {
+  position: sticky;
+  top: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--cit-border);
+  font-size: 14px;
+  font-weight: 600;
+  /* solid bg so the header reads well on scroll */
+  background: var(--cit-pane-bg);
+}
 .paneBody { padding: 12px; }
-.item { margin-bottom: 18px; }
-.title { font-size: 13px; margin-bottom: 6px; opacity:.9 }
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 55; /* below pane */
+  background: var(--cit-overlay);
+  /* backdrop-filter: blur(4px); */
+  -webkit-backdrop-filter: blur(4px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .2s ease;
+}
+.overlayOpen {
+  opacity: 1;
+ 
+}
+
+.item { margin-bottom: 18px;}
+.title { font-size: 16px; }
 
 .link {
   display:inline-block; margin-bottom:8px;
-  color:#7ab7ff; text-decoration: underline; word-break: break-all;
+  color:#7ab7ff; text-decoration: underline; word-break: break-all; font-size: 14px;
 }
 
 .thumb {
   width: 100%; height: auto; border: 1px solid #3a3a3a;
-  border-radius: 6px; display:block; margin: 8px 0;
+  border-radius: 6px; display:block; 
   cursor: zoom-in;
 }
 
@@ -71,3 +173,32 @@
   border: 1px solid #444; border-radius: 6px;
   padding: 6px 10px; background: #1a1a1a; color: #eee; cursor: pointer;
 }
+
+/* Light theme (root without .dark) */
+:global(:root:not(.dark)) {
+  /* Solid card-like panel */
+  --cit-pane-bg: #ffffff;
+  --cit-fg: #111827;
+  --cit-border: rgba(0,0,0,.08);
+  /* overlay similar to your sidebar’s dim */
+  --cit-overlay: rgba(0,0,0,.45);
+}
+
+/* Dark theme */
+:global(.dark) {
+  --cit-pane-bg: #0f1115;        /* close to your sidebar background */
+  --cit-fg: #e5e7eb;
+  --cit-border: rgba(255,255,255,.10);
+  --cit-overlay: rgba(0,0,0,.55);
+}
+
+.nav {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  width: 36px; height: 36px; border-radius: 9999px;
+  border: 1px solid var(--cit-border, #444);
+  background: var(--cit-pane-bg, #1a1a1a); color: var(--cit-fg, #eee);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; opacity: .95;
+}
+.navLeft  { left: 16px;  }
+.navRight { right: 16px; }

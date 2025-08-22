@@ -4,7 +4,7 @@
 /* eslint-disable indent */
 /* eslint-disable comma-dangle */
 /* eslint-disable simple-import-sort/imports */
-import React, { useEffect, useRef, useState } from "react";
+import React, { useDeferredValue, useEffect, useRef, useState } from "react";
 import { Check,
   Copy,
   MessageSquare,
@@ -31,9 +31,14 @@ import type { ChatInterfaceProps } from "@/types/chats";
 import CitationStrip from "../components/citations/CitationStrip";
 import CitationPane from "../components/citations/CitationPane";
 import type { Citation } from "@/types/chats";
+import { Menu } from "lucide-react";
+const MemoMarkdown = React.memo(Markdown);
 
-
-const ChatInterface: React.FC<ChatInterfaceProps> = ({
+const ChatInterface: React.FC<ChatInterfaceProps & { 
+  toggleSidebar: () => void; 
+  isSidebarCollapsed: boolean; 
+  scrollSignal?: number;
+}> = ({
   messages,
   onSendMessage,
   isLoading,
@@ -41,15 +46,46 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   onShareChat,
   onStopGeneration,
   showCentered = false,
-  isCollapsed = false
+  isCollapsed = false,
+  toggleSidebar, // Add toggleSidebar prop
+  isSidebarCollapsed, // Add isSidebarCollapsed prop
+  scrollSignal  
 }) => {
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [showJump, setShowJump] = useState(false);
-
+  const [forceTyping, setForceTyping] = useState(false);
+ // Show indicator if: (normal rule) OR (debug forced)
+  const deferredMessages = useDeferredValue(messages);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const autoResize = () => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto"; // reset to measure
+    const maxPx = parseFloat(getComputedStyle(el).maxHeight || "0");
+    const next = Math.min(el.scrollHeight, Number.isFinite(maxPx) ? maxPx : el.scrollHeight);
+    el.style.height = `${next}px`;
+    el.style.overflowY = el.scrollHeight > next ? "auto" : "hidden";
+};
+// --- Title gating: show only after first assistant message finishes streaming
+const hasAssistantMsg = messages?.some(m => m.role === "assistant");
+const hasRealTitle =
+  Boolean(chatTitle?.trim()) && chatTitle !== "New Chat";
+const canShowTitle = hasAssistantMsg && !isLoading && hasRealTitle;
+
+// Run once on mount and whenever input text changes
+useEffect(() => { autoResize(); }, []);
+useEffect(() => { autoResize(); }, [input]);
+
+// (Optional) keep height correct on viewport resize (vh-based caps)
+useEffect(() => {
+  const onResize = () => autoResize();
+  window.addEventListener("resize", onResize);
+  return () => window.removeEventListener("resize", onResize);
+}, []);
+
   const {
     toast
   } = useToast();
@@ -75,8 +111,29 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   };
 
   useEffect(() => {
-    scrollToBottom(isLoading ? "auto" : "smooth");
-  }, [messages, isLoading]);
+  // only act on deliberate signals (> 0) and when there is content
+  if (!scrollSignal || messages.length === 0) return;
+
+  // wait for layout to settle
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      scrollToBottom("auto");
+    });
+  });
+}, [scrollSignal]);
+  useEffect(() => {
+    if (isLoading) {
+      // streaming started: ensure the button is hidden
+      setShowJump(false);
+    } else {
+      // streaming finished: recompute whether we should show it
+      const viewport = getViewport();
+      if (viewport) {
+        const atBottom = isNearBottom(viewport, 80);
+        setShowJump(!atBottom);
+      }
+  }
+}, [isLoading]);
   useEffect(() => {
     if (messages.some(m => m.role === "assistant")) setIsTyping(false);
   }, [messages]);
@@ -85,15 +142,26 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const viewport = getViewport();
   if (!viewport) return;
 
+  let ticking = false;
   const onScroll = () => {
-    const atBottom = isNearBottom(viewport, 80);
-    setShowJump(!atBottom);
+    if (isLoading || ticking) return;   // skip updates while streaming
+    ticking = true;
+    requestAnimationFrame(() => {
+      const atBottom = isNearBottom(viewport, 80);
+      setShowJump(prev => {
+        const next = !atBottom;
+        return prev === next ? prev : next; // update only if changed
+      });
+      ticking = false;
+    });
   };
 
-  onScroll(); // initialize state on mount/update
+  // Initialize only if not streaming
+  if (!isLoading) onScroll();
+
   viewport.addEventListener("scroll", onScroll);
   return () => viewport.removeEventListener("scroll", onScroll);
-}, [messages, isLoading]);
+}, [isLoading, messages]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -171,7 +239,7 @@ const handleFeedback = async (messageId: string, type: 'up' | 'down') => {
     });
     onShareChat?.();
   };
-  const TypingIndicator = () => <div className="flex items-center space-x-2 text-muted-foreground px-6 py-4">
+  const TypingIndicator = () => <div className="flex items-center space-x-2 text-foreground dark:dark:text-foreground px-4 py-4">
       <div className="flex space-x-1">
         <div className="w-2 h-2 bg-current rounded-full animate-bounce" style={{
         animationDelay: '0ms'
@@ -196,34 +264,72 @@ const handleFeedback = async (messageId: string, type: 'up' | 'down') => {
     setPaneCitations(cits);
     setRefPaneOpen(true);
   };
-
+  const lastIsAssistant = messages[messages.length - 1]?.role === "assistant";
+  const showTypingIndicator = (isLoading && !lastIsAssistant) || forceTyping;
   
-  return <div className="flex-1 flex flex-col h-screen bg-chat-background">
+  return <div
+  className="flex-1 flex flex-col h-screen bg-chat-background transition-[padding-right] duration-200"
+  
+>
 
-      {/* Header */}
-      <div className="border-b border-chat-border p-4 bg-card/50 backdrop-blur-xl sticky top-0 z-10">
-        <div className="mx-auto w-full  flex items-center justify-between gap-2 px-2 sm:px-4">
-          <div className="flex min-w-0 items-center gap-3 flex-1">
-            <img src={logoImage} alt="Logo" className="w-10 h-10 sm:w-12 sm:h-12 md:w-16 md:h-16 shrink-0" />
-            <h1 className="text-xl font-semibold text-foreground">{chatTitle}</h1>
-          </div>
-          <div className="flex items-center space-x-4 ml-auto">
-          
-            {messages.length > 0 && onShareChat && <Button variant="outline" size="sm" onClick={handleShare} className="h-8 px-3 text-xs">
-                <Share2 className="w-3 h-3 mr-1" />
-                Share
-              </Button>}
-          </div>
+  {/* Uncomment to debug the typing indicator */}
+  {/* {import.meta.env.DEV && (
+  <div className="fixed bottom-24 right-4 z-50 rounded-xl bg-black/60 text-white px-3 py-2 text-xs">
+    <label className="inline-flex items-center space-x-2">
+      <input
+        type="checkbox"
+        checked={forceTyping}
+        onChange={e => setForceTyping(e.target.checked)}
+      />
+      <span>TypingIndicator (debug)</span>
+    </label>
+  </div>
+)} */}
+    {/* Header */}
+    <div className="border-b border-chat-border p-4 bg-card/50 backdrop-blur-xl  z-10 ">
+      <div className="flex items-center w-full px-2 sm:px-4 relative">
+        {/* Sidebar Toggle Button */}
+        <Button
+          onClick={toggleSidebar}
+          className="h-10 w-10 rounded-full shadow-lg bg-[#343541] dark:bg-primary dark:hover:bg-primary/80 hover:bg-[#343541]/80"
+        >
+          <Menu className="h-5 w-5" />
+        </Button>
+
+        {/* Centered Title */}
+        {/* Centered Title */}
+        <h1 className="absolute left-1/2 transform -translate-x-1/2 text-xl font-semibold text-[#343541] dark:text-white truncate max-w-[60%] sm:max-w-[70%] text-center">
+          {canShowTitle ? chatTitle : "Maintenance Agent"}
+        </h1>
+        
+        {/* Share Button on Right */}
+        <div className="ml-auto flex items-center">
+          {messages.length > 0 && onShareChat && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleShare}
+              className="h-8 px-3 text-sm text-[#343541] dark:text-white hover:bg-[#343541]/10 dark:hover:bg-primary/20 transition-colors duration-200"
+            >
+              <Share2 className="w-3 h-3" />
+              Share
+            </Button>
+          )}
         </div>
       </div>
+    </div>
 
       {/* Messages */}
             <ScrollArea className={cn("flex-1", isCentered ? "flex items-center justify-center" : " pt-4")}>
-              <div className={cn("w-full", isCentered ? "mx-auto" : "space-y-8 ml-0")}>
+                <div className={cn(
+                  "w-full max-w-[95vw] sm:max-w-xl md:max-w-2xl lg:max-w-3xl mx-auto px-2 sm:px-4",              // NEW: centered column + even gutters
+                  isCentered ? "" : "space-y-6"   ,
+                  "pb-28 sm:pb-32"              // tighter vertical rhythm like ChatGPT
+                )}>
 
           {messages.length === 0 && isCentered ? <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-8 py-0 my-[0px]">
               <div className="text-center space-y-4">
-                <h1 className="text-4xl font-semibold text-foreground">
+                <h1 className="text-4xl font-semibold text-[#343541] dark:text-white">
                   What's on your mind today?
                 </h1>
               </div>
@@ -233,21 +339,19 @@ const handleFeedback = async (messageId: string, type: 'up' | 'down') => {
                   <Textarea
                     ref={textareaRef}
                     value={input}
-                    onChange={e => setInput(e.target.value)}
+                    onChange={(e) => { setInput(e.target.value); requestAnimationFrame(autoResize); }}
                     onKeyDown={handleKeyDown}
-                    placeholder="Ask anything..."
+                    placeholder="Ask anything."
                     className={cn(
-                      "min-h-[60px] max-h-[200px] pr-14 resize-none transition-all duration-200",
-                      // light defaults
-                      "bg-white border-slate-300 placeholder-slate-400",
-                      // dark overrides
+                      "min-h-[56px] sm:min-h-[64px] max-h-[50vh] sm:max-h-[45vh] md:max-h-[40vh] lg:max-h-[35vh]",
+                      "overflow-y-auto pr-14 resize-none transition-all duration-200",
+                      // keep the styles you already have in this block:
+                      "bg-white border-[#343541] placeholder-slate-400",
                       "dark:bg-zinc-900 dark:border-zinc-200",
-                      // focus/hover etc.
-                      "focus:ring-ring focus:ring-2 hover:shadow-lg hover:border-border",
-                      "rounded-2xl text-base leading-relaxed shadow-lg"
+                      "focus:ring-ring focus:ring-2 hover:shadow-lg hover:border-border"
                     )}
                     disabled={isLoading}
-                  />                 
+                  />               
                     <Button type="submit" size="icon" disabled={!input.trim() || isLoading} className={cn("absolute right-3 bottom-3 h-10 w-10 rounded-xl", "bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground transition-all duration-200", "hover:scale-105 active:scale-95", "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100")}>
                       <Send className="w-4 h-4" />
                     </Button>
@@ -266,18 +370,18 @@ const handleFeedback = async (messageId: string, type: 'up' | 'down') => {
                   Start a conversation and I'll help you with anything you need.
                 </p>
               </div>
-            </div> : messages.map(message => <div key={message.id} className={cn("group mb-6 transition-all duration-200", message.role === 'user' ? "flex justify-end" : "flex justify-start")}>
-                <div className={cn("transition-all duration-200", message.role === 'user' ? "mr-8 ml-8 w-1/2 ml-8" : "w-full mr-8")}>
+      </div> : deferredMessages.map(message => <div key={message.id} className={cn("group  mt-1 mb-6 transition-all duration-200", message.role === 'user' ? "flex justify-end" : "flex justify-start")}>
+                <div className={cn("transition-all duration-200", message.role === 'user' ? "max-w-[75%]" : "w-full")}>
                    {/* Message Content */}
-                   <div className={cn("p-3 rounded-2xl transition-all duration-200 block w-full", 
+                   <div className={cn("px-4 py-3 rounded-2xl transition-all duration-200 w-full", 
                    
                     message.role === "user"
-                    ? "text-gray-900 bg-[#444654] text-white hover:shadow-md"
-                    : "bg-chat-message-assistant text-foreground border border-chat-border/30 hover:shadow-black/10 hover:dark:shadow-white/15")}>
+                    ? "bg-[#444654] dark:bg-[#343541] text-white"
+                    : "bg-gray-200/0 dark:bg-chat-message-assistant/0 text-foreground border border-chat-border/0")}>
+
                       {message.role === "assistant" ? (
-                        <Markdown content={message.content} />
-                      ) : (
-                        <p className="whitespace-pre-wrap leading-relaxed text-base text-left m-0">
+                        <MemoMarkdown content={message.content} />                      ) : (
+                        <p className="whitespace-pre-wrap leading-relaxed text-[15px] text-left m-0">
                           {message.content}
                         </p>
                       )}
@@ -306,9 +410,7 @@ const handleFeedback = async (messageId: string, type: 'up' | 'down') => {
                           <Button variant="ghost" size="sm" onClick={() => handleFeedback(message.id, 'down')} className="h-7 px-2 text-xs hover:bg-muted/50 hover:text-red-600">
                             <ThumbsDown className="w-3 h-3" />
                           </Button>
-                          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs hover:bg-muted/50">
-                            <RotateCcw className="w-3 h-3" />
-                          </Button>
+                          
                         </>}
                     </div>
                     
@@ -322,48 +424,73 @@ const handleFeedback = async (messageId: string, type: 'up' | 'down') => {
                 </div>
               </div>)}
 
-          {(isLoading && (messages[messages.length - 1]?.role !== "assistant")) && <div className="group mb-6 flex justify-start">
-              <div className="max-w-[80%] mr-8 hover:shadow-lg transition-all duration-200">
-                <div className="bg-chat-message-assistant text-foreground border border-chat-border/30 p-4 rounded-2xl">
-                  <TypingIndicator />
-                </div>
-                {isLoading && onStopGeneration && <div className="flex items-center mt-2 px-2">
-                    <Button variant="ghost" size="sm" onClick={onStopGeneration} className="h-7 px-3 text-xs hover:bg-muted/50 text-red-600 hover:text-red-700">
-                      <Square className="w-3 h-3 mr-1" />
-                      Stop
-                    </Button>
-                  </div>}
+          {showTypingIndicator && (
+          <div className="group mb-6 flex justify-start">
+            <div className="max-w-[80%] transition-all duration-200">
+              <div className="bg-gray-200/80 dark:bg-chat-message-assistant text-[#444654]  border border-chat-border/30 p-2 rounded-2xl">
+                <TypingIndicator />
               </div>
-            </div>}
+              {onStopGeneration && (
+                <div className="flex items-center mt-2 px-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={onStopGeneration}
+                    className="h-7 px-3 text-xs hover:bg-muted/50 text-red-600 hover:text-red-700"
+                  >
+                    <Square className="w-3 h-3 mr-1" />
+                    Stop
+                  </Button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
           <div ref={messagesEndRef} />
         </div>
       </ScrollArea>
-      {showJump && (
-  <div
-    className={
-      // Centered overlay, above the input
-      // If your input area is taller/shorter, tweak the bottom offset.
-      "pointer-events-none fixed inset-x-0  bottom-36  z-40 flex justify-center"
-    }
-  >
-    <Button
-      onClick={() => requestAnimationFrame(() => scrollToBottom("auto"))}
-      className="pointer-events-auto h-8 px-2 rounded-full shadow-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-opacity"
-    >
-      <ChevronDown className="w-4 h-4" />
-     
-      <span className="sr-only">Scroll to latest</span>
-    </Button>
-  </div>
-)}
+      {!isLoading && showJump && (
+      <div
+        className={
+          // Centered overlay, above the input
+          // If your input area is taller/shorter, tweak the bottom offset.
+          "pointer-events-none fixed inset-x-0  bottom-36  z-[10] flex justify-center"
+        }
+      >
+        <Button
+          onClick={() => requestAnimationFrame(() => scrollToBottom("auto"))}
+          className="pointer-events-auto h-8 px-2 rounded-full shadow-lg bg-[#343541] dark:bg-foreground text-primary-foreground hover:bg-primary/90 transition-opacity"
+        >
+          <ChevronDown className="w-4 h-4" />
+        
+          <span className="sr-only">Scroll to latest</span>
+        </Button>
+      </div>
+    )}
       {/* Input Area - Only show when not centered or when there are messages */}
-      {!isCentered && <div className="border-t border-chat-border bg-card/50 backdrop-blur-xl px-20 py-4">
-          <div className="max-w-4xl mx-auto">
+      {!isCentered && <div className="border-t border-chat-border bg-card/50 backdrop-blur-xl px-4 py-4 ">
+          <div className="max-w-3xl mx-auto">
             <form onSubmit={handleSubmit} className="relative">
               <div className="relative group">
-                <Textarea ref={textareaRef} value={input} onChange={e => setInput(e.target.value)} onKeyDown={handleKeyDown} placeholder="Ask anything..." className={cn("min-h-[60px] max-h-[200px] pr-14 resize-none transition-all duration-200", "!bg-chat-input dark:bg-zinc-900 border-chat-border focus:ring-ring focus:ring-2", "hover:shadow-lg hover:border-border", "rounded-2xl text-base leading-relaxed", "placeholder:text-muted-foreground/60")} disabled={isLoading} />
-                <Button type="submit" size="icon" disabled={!input.trim() || isLoading} className={cn("absolute right-3 bottom-3 h-10 w-10 rounded-xl", "bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground transition-all duration-200", "hover:scale-105 active:scale-95", "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100")}>
+                <Textarea
+  ref={textareaRef}
+  value={input}
+  onChange={(e) => { setInput(e.target.value); requestAnimationFrame(autoResize); }}
+  onKeyDown={handleKeyDown}
+  placeholder="Ask anything."
+  className={cn(
+    // Auto-grow baseline + responsive max height (taller cap on smaller screens)
+    " min-h-[56px] sm:min-h-[64px] max-h-[50vh] sm:max-h-[45vh] md:max-h-[40vh] lg:max-h-[35vh]",
+    "overflow-y-auto pr-14 resize-none transition-all duration-200",
+    // keep your existing theming & focus rings
+    "!bg-chat-input dark:bg-red-900 border-chat-border focus:ring-ring focus:ring-2",
+    "rounded-2xl text-base leading-relaxed",
+    "placeholder:text-muted-foreground/60"
+  )}
+  disabled={isLoading}
+/>
+                <Button type="submit" size="icon" disabled={!input.trim() || isLoading} className={cn("absolute right-3 bottom-3 h-10 w-10 rounded-xl", "bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground transition-all duration-200", "hover:scale-105 active:scale-95", "disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100")}>
                   <Send className="w-4 h-4" />
                 </Button>
               </div>

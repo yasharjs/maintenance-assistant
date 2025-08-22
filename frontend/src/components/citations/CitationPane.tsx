@@ -4,7 +4,7 @@
 /* eslint-disable jsx-a11y/no-static-element-interactions */
 /* eslint-disable simple-import-sort/imports */
 /* eslint-disable jsx-a11y/no-noninteractive-element-interactions */
-import react, { useState, useEffect } from "react";
+import react, { useState, useEffect, useRef } from "react";
 import styles from "./Citations.module.css";
 import type { Citation } from "@/types/chats";
 
@@ -16,6 +16,29 @@ type Props = {
 
 export default function CitationPane({ open, citations, onClose }: Props) {
   const [zoomUrl, setZoomUrl] = useState<string | null>(null);
+  const paneRef = useRef<HTMLDivElement | null>(null);
+  
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (zoomUrl) setZoomUrl(null);
+        else if (open) onClose();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, zoomUrl, onClose]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleDown = (e: MouseEvent) => {
+      if (zoomUrl) return; // don’t close pane while zoom is open
+      const pane = paneRef.current;
+      if (pane && !pane.contains(e.target as Node)) onClose();
+    };
+    document.addEventListener("mousedown", handleDown);
+    return () => document.removeEventListener("mousedown", handleDown);
+  }, [open, zoomUrl, onClose]);
 
    useEffect(() => {
     if (zoomUrl) {
@@ -31,7 +54,12 @@ export default function CitationPane({ open, citations, onClose }: Props) {
 
   return (
     <>
-      <aside className={`${styles.pane} ${open ? styles.paneOpen : ""}`} aria-hidden={!open}>
+      {/* Dimmed overlay over ChatInterface; click outside to close */}
+      <div
+        className={`${styles.overlay} ${open ? styles.overlayOpen : ""}`}
+      />
+      <aside 
+        id="citation-pane" ref= {paneRef} className={`${styles.pane} ${open ? styles.paneOpen : ""}`} aria-hidden={!open}>
         <div className={styles.paneHeader}>
           <div>References</div>
           <button onClick={onClose}>Close</button>

@@ -21,7 +21,7 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { ScrollArea } from '../components/ui/scroll-area';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../components/ui/dropdown-menu';
-import { Sidebar as UISidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarHeader, SidebarFooter, useSidebar } from '../components/ui/sidebar';
+import { Sidebar as UISidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarHeader, SidebarFooter } from '../components/ui/sidebar';
 import { cn } from '../lib/utils';
 import logoImage from '@/assets/logo.png';
 import type {SidebarProps } from "@/types/chats";
@@ -43,7 +43,6 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const { theme, setTheme } = useTheme();
-  const { setOpen } = useSidebar();
   const filteredChats = chats.filter(chat =>
     chat.title?.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -80,35 +79,23 @@ const formatTime = (date: Date) => {
 
 
   return (
-    <UISidebar
-      className={cn(
-        "transition-all duration-300 flex flex-col",
-        isCollapsed ? "w-16" : "w-80"
-      )}
-    >
+    <div className="transition-all duration-300 flex flex-col w-80 border-r border-sidebar-border bg-background z-[100] sm:w-80 md:w-80 lg:w-80 h-full">
       {/* Header */}
       <SidebarHeader>
         <div className="p-4 space-y-4 border-b border-sidebar-border">
           <div className="flex items-center justify-between">
-            {!isCollapsed && (
+            {!isCollapsed &&  (
               <div className="flex items-center gap-2">
-                <img src={logoImage} alt="Logo" className="w-10 h-10 rounded-sm" />
-                <h2 className="font-semibold text-sidebar-foreground text-sm"> </h2>
+                <img src={logoImage} alt="Logo" className="w-16 h-16 rounded-sm" />
+                
               </div>
             )}
+           
             <Button
               variant="ghost"
               size="icon"
               onClick={onToggleCollapse}
-              className="hover:bg-muted"
-            >
-              {/* {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />} */}
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setOpen(false)}
-              className="hover:bg-muted"
+              className="hover:bg-gray-200/80 dark:hover:bg-gray-200/10"
               title="Close sidebar"
             >
               <ChevronLeft className="h-4 w-4" />
@@ -119,10 +106,10 @@ const formatTime = (date: Date) => {
             <>
               <Button
                 onClick={onNewChat}
-                className="w-full justify-center text-xs h-8 bg-gradient-to-r from-sidebar-accent to-sidebar-accent/80 hover:from-sidebar-accent/90 hover:to-sidebar-accent text-sidebar-foreground border border-sidebar-border/30 rounded-lg group"
+                className="w-full justify-center text-xs h-8 bg-gray-200/80 dark:bg-gray-200/10 dark:hover:bg-gray-200/20 hover:bg-gray-200 text-sidebar-foreground border border-sidebar-border/30 rounded-lg group"
                 variant="ghost"
               >
-                <Plus className="w-3.5 h-3.5 mr-1.5 group-hover:rotate-90 transition-transform duration-300" />
+                <Plus className="w-3.5 h-3.5 mr-1.5 group-hover:rotate-90 transition-transform duration-300 " />
                 New Chat
               </Button>
 
@@ -157,7 +144,7 @@ const formatTime = (date: Date) => {
                         key={chat.id}
                         className={cn(
                           "group relative mb-1 rounded-lg transition-all duration-200 ease-in-out animate-fade-in w-full",
-                          activeChat === chat.id ? "bg-sidebar-accent" : "hover:bg-sidebar-accent/50"
+                          activeChat === chat.id ? "bg-gray-200/80 dark:bg-gray-200/10" : "hover:bg-gray-200/80 dark:hover:bg-gray-200/10"
                         )}
                       >
                           <div
@@ -179,14 +166,12 @@ const formatTime = (date: Date) => {
                               />
                             ) : (
                               <>
-                                <h3 className="text-sm font-medium text-sidebar-foreground truncate mb-1 max-w-[200px]">
+                                <h3 className="text-sm font-medium text-sidebar-foreground truncate mb-1 max-w-[200px] ">
                                   {chat.title?.trim() ||
                                     chat.messages?.[0]?.content?.slice(0, 40) ||
                                     "New Chat"}
                                 </h3>
-                                <p className="text-xs text-sidebar-foreground/60 truncate">
-                                  {chat.lastMessage}
-                                </p>
+                               
                                 <p className="text-xs text-muted-foreground mt-1">
                                 {formatTime(chat.timestamp)}
                                 </p>
@@ -199,7 +184,7 @@ const formatTime = (date: Date) => {
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 p-0 text-sidebar-foreground/50 hover:text-sidebar-foreground"
+                                className="flex-shrink-0   h-6 w-6 p-0 text-sidebar-foreground/50 hover:bg-gray-200/80"
                                 onClick={e => e.stopPropagation()}
                               >
                                 <MoreHorizontal className="w-4 h-4" />
@@ -261,7 +246,7 @@ const formatTime = (date: Date) => {
               <Button
                 variant="ghost"
                 className={cn(
-                  "w-full justify-start",
+                  "w-full justify-start hover:bg-gray-200/80 dark:hover:bg-gray-200/10",
                   isCollapsed ? "px-0 justify-center" : ""
                 )}
               >
@@ -295,7 +280,7 @@ const formatTime = (date: Date) => {
           </DropdownMenu>
         </div>
       </SidebarFooter>
-    </UISidebar>
+    </div>
   );
 };
 

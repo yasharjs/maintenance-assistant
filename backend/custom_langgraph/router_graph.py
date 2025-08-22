@@ -34,6 +34,13 @@ few_shots = [
     HumanMessage(content="what are the main components of a filter o-ring "),
     AIMessage(content="troubleshooting"),
 
+    HumanMessage(content="im looking for table 2-1 in servo valve troubleshooting document"),
+    AIMessage(content="troubleshooting"),
+
+    HumanMessage(content="what are the servo valve command values table 2-1?"),
+    AIMessage(content="troubleshooting"),
+
+
     HumanMessage(content="can you give me a list of valve drawings available?"),
     AIMessage(content="mechanical_drawing"),
 
@@ -74,25 +81,35 @@ few_shots = [
 
     HumanMessage(content="values?"),
     AIMessage(content="uncertain"),
+
+    HumanMessage(content="servo valve command values"),
+    AIMessage(content="uncertain"),
+
+    
 ]
 
 
 # Shared routing descriptions
 routing_descriptions = {
     "mechanical_drawing": (
-        "Select this route when the user explicitly requests to **view or reference a visual document**, such as:\n"
-        "- CAD drawing\n"
-        "- Schematic diagram\n"
-        "- Bill of Materials (BOM)\n"
-        "- Exploded view or item position\n"
-        "- Specific drawing page, part number, or revision\n\n"
+        "Use this route ONLY when the user explicitly wants to VIEW or OPEN a visual engineering artifact such as a "       
+        "drawing or diagram. Positive signals include terms like: drawing, schematic, diagram,"  
+        "CAD, exploded view, BOM (as a drawing artifact), item numbers on a sheet, "
+        "BOM Description, revision/sheet references (e.g., 'Sheet 3', 'Rev B'), or requests to open a specific page of a "
+        "drawing set.\n\n"
+        "Do NOT use this route for references to tables/figures/sections inside troubleshooting or procedure manuals "
+        "(e.g., 'table 2-1', 'figure 3-4', 'section 5.2') unless the user explicitly asks for a schematic/diagram/drawing "
+        "itself. Those should go to troubleshooting.\n\n"
         "Only classify as 'mechanical_drawing' if the main intent is to access or view the drawing/BOM itself. "
-        "If the user mentions a part or component but is asking how it works, how to fix it, or how to check it, route to 'troubleshooting' instead."
+        "Do NOT route here when:\n"
+        "• The user cites a table/figure/section from a troubleshooting/operations/maintenance manual (default: troubleshooting).\n"
+        "• The user asks about fault codes, calibration steps, signal readings, procedures, command values, pin values or diagnostics (troubleshooting).\n\n"
         ),
     "troubleshooting": (
         "Select this route for **all technical diagnostic, setup, repair, calibration, or fault-resolution queries** related to hydraulic or electrical subsystems.\n\n"
         "Covers, but is not limited to:\n"
         "- Servo Valve Failure Data Sheet"
+        "- servo valve command values"
         "- Machine faults, alarms, and error messages\n"
         "- Hydraulic or electrical calibration and tuning\n"
         "- Sensor readings, voltage checks, and signal measurements\n"
@@ -118,6 +135,7 @@ routing_descriptions = {
         "- Diagnosing servo valve faults (Not Mechanically Centered, Opening Negative, Valve Ready Signal Fault)\n"
         "- Verifying jumper settings and card configurations\n"
         "- Cable integrity, grounding, and noise checks\n\n"
+        "If the user references a table/figure inside a troubleshooting/manual document (e.g., ‘table 2-1’ or 'figure 2-1), route to troubleshooting unless they ask for a schematic/BOM/drawing."
         "**Routing rule:** If the query mentions a part/component without clearly asking for a drawing/BOM view, default to 'troubleshooting'."
     ),
     "general": (
@@ -142,8 +160,7 @@ async def _hybrid_route_with_followup(query: str, history_msgs):
     llm_resp = await classify_structured(query, history_msgs)
     route = llm_resp["route"]
     follow_up = llm_resp["follow_up"]
-
-    # Tie-breaker: if LLM says uncertain but we see a clear domain hint
+    print(f"LLM routing result: {route} (follow-up: '{follow_up}')")
     if route == "uncertain":
          return {"route": "uncertain", "follow_up": follow_up}
 

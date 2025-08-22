@@ -13,7 +13,7 @@
 /* eslint-disable indent */
 /* eslint-disable @typescript-eslint/no-unused-vars */
 // eslint-disable-next-line simple-import-sort/imports
-import React, { useContext, useEffect, useState } from "react";
+import React, { useContext, useEffect, useMemo, useState } from "react";
 import { Menu } from "lucide-react";
 import { v4 as uuid } from "uuid";
 import { conversationApi,
@@ -39,6 +39,7 @@ import type { Chat } from "@/types/chats";
 const ASSISTANT = "assistant";
 const TOOL = "tool";
 const ERROR = "error";
+
 
 // Parse citations from tool messages (for UI if needed later)
 const parseCitationFromMessage = (message: ChatMessage) => {
@@ -90,9 +91,20 @@ const MainContent = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [shareDialogChatId, setShareDialogChatId] = useState<string>("");
-
+  const [isOpen, setIsOpen] = useState(false); // Single state for sidebar
   const { toast } = useToast();
-  const { open, setOpen } = useSidebar();
+  const [scrollSignal, setScrollSignal] = useState(0);
+
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setIsOpen(false);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+ const toggleSidebar = () => {
+    setIsOpen((prev) => !prev);
+  };
 
 // Load chat history
 useEffect(() => {
@@ -142,6 +154,17 @@ useEffect(() => {
   const chats = appStateContext?.state.chatHistory || [];
   const currentChat = appStateContext?.state.currentChat;
   const settings = appStateContext?.state.frontendSettings;
+  const renderedMessages = useMemo(
+  () =>
+    (currentChat?.messages?.map(m => ({
+      id: m.id,
+      content: typeof m.content === "string" ? m.content : "",
+      role: m.role as "user" | "assistant",
+      timestamp: m.createdAt ? new Date(m.createdAt) : new Date(),
+      citations: Array.isArray((m as any).citations) ? (m as any).citations : []
+    })) || []),
+  [currentChat?.messages]
+);
 
 
   function normalizeContent(content: any): string {
@@ -212,18 +235,17 @@ const mappedChats: Chat[] = (chats || []).map(conv => {
     timestamp: conv.date ? new Date(conv.date) : new Date(),
     messages: (conv.messages || []).map(m => ({
       id: m.id,
-      content: normalizeContent(
-        typeof m.content === "string" ? m.content : ""
-      ),
+      content: normalizeContent(m.content),
       role: m.role as "user" | "assistant",
-      timestamp: m.date ? new Date(m.date) : new Date(),
-      citations: Array.isArray((m as any).citations) ? (m as any).citations : []
+      timestamp: m.createdAt ? new Date(m.createdAt) : new Date(),      
+      citations: Array.isArray(m.citations) ? m.citations : []
     }))
   };
 });
 
 
-  const getCurrentChat = () => {
+const getCurrentChat = () => {
+
     return mappedChats.find(chat => chat.id === activeChat);
   };
 
@@ -237,7 +259,14 @@ const handleSelectChat = async (chatId: string) => {
     if (!chat) return;
 
     // Load messages for this chat
-    const messages = await historyRead(chatId);
+    
+    let messages = await historyRead(chatId);
+
+    // FIX: Normalize citations for each message
+    messages = (messages || []).map(m => ({
+      ...m,
+      citations: Array.isArray(m.citations) ? m.citations : []
+    }));
 
     // Create a proper Conversation object
     const updatedChat: Conversation = {
@@ -252,6 +281,8 @@ const handleSelectChat = async (chatId: string) => {
       type: "UPDATE_CURRENT_CHAT",
       payload: updatedChat
     });
+
+    setScrollSignal(s => s + 1);
   } catch (err) {
     console.error("Failed to load chat messages", err);
   }
@@ -321,10 +352,10 @@ const handleSelectChat = async (chatId: string) => {
   let conversation = currentChat;
   let request: ConversationRequest;
 
-let assistantMessage: ChatMessage = { id: "", role: ASSISTANT, content: "", date: new Date().toISOString() };
-let toolMessage: ChatMessage = {} as ChatMessage;
-let assistantContent = "";
-let latestCitations: any[] = [];
+  let assistantMessage: ChatMessage = { id: "", role: ASSISTANT, content: "", date: new Date().toISOString() };
+  let toolMessage: ChatMessage = {} as ChatMessage;
+  let assistantContent = "";
+  let latestCitations: any[] = [];
 
   try {
     // Create new or use existing conversation
@@ -334,10 +365,14 @@ let latestCitations: any[] = [];
         title: content.slice(0, 50) + (content.length > 50 ? "..." : ""),
         messages: [userMessage],
         date: new Date().toISOString()
+        
       };
+      console.log("date : ", conversation.date);
       request = { messages: [userMessage] };
     } else {
-      conversation.messages.push(userMessage);
+      // else-branch
+      conversation.messages = [...conversation.messages, userMessage];
+
       request = { messages: conversation.messages.filter(msg => msg.role !== ERROR) };
     }
 
@@ -363,6 +398,20 @@ let latestCitations: any[] = [];
       let seenAssistantToken = false;
       let framePending = false;
       let lastFlushTs = 0;
+      let assistantMessageId: string | null = null;
+      const flush = () => {
+      // conversation is defined in this scope; copy to trigger React updates safely
+      appStateContext?.dispatch({ type: 'UPDATE_CURRENT_CHAT', payload: { ...conversation! } });
+    };
+      const scheduleFlush = () => {
+        if (framePending) return;
+        framePending = true;
+        requestAnimationFrame(() => {
+          flush();
+          framePending = false;
+        });
+      };
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -382,15 +431,6 @@ let latestCitations: any[] = [];
 
               if (result.choices?.length > 0) {
                 result.choices[0].messages.forEach((msg: any) => {
-                  if (msg.role === ASSISTANT) {
-                    assistantContent += msg.content;
-                    assistantMessage = {...assistantMessage, ...msg, id: msg.id || uuid()}; 
-                    assistantMessage.content = assistantContent;
-
-                  if (Array.isArray(latestCitations) && latestCitations.length > 0) {
-                      (assistantMessage as any).citations = latestCitations;
-                  }
-                  }
                     if (msg.role === TOOL) {
                       toolMessage = { ...msg, id: msg.id || uuid() };
                       // NEW: try to extract citations from tool JSON
@@ -403,6 +443,29 @@ let latestCitations: any[] = [];
                         }
                       } catch {}
                     }
+                  
+                  if (msg.role === ASSISTANT) {
+                    if (!assistantMessageId) {
+                      assistantMessageId = msg.id || uuid();
+                    }
+                    assistantContent += msg.content;
+                    assistantMessage = {...assistantMessage, ...msg, id: assistantMessageId }; 
+                    assistantMessage.content = assistantContent;
+
+                    if (Array.isArray(latestCitations) && latestCitations.length > 0) {
+                      (assistantMessage as any).citations = latestCitations;
+                    }
+                    // Update the conversation in real-time as we stream
+                    const assistantIndex = conversation.messages.findIndex(m => m.id === assistantMessageId);
+                    const nextMessages =
+                    assistantIndex === -1
+                      ? [...conversation.messages, { ...assistantMessage }]
+                      : conversation.messages.map((m, i) => (i === assistantIndex ? { ...assistantMessage } : m));
+
+                  conversation.messages = nextMessages;
+                  scheduleFlush();
+                  }
+                
                 });
               }
               runningText = '';
@@ -421,17 +484,20 @@ let latestCitations: any[] = [];
         conversation.date = finalResult.history_metadata.date;
       }
 
-      // Append tool message first if present
-      if (Object.keys(toolMessage).length > 0) {
-        conversation.messages.push(toolMessage);
-      }
-
-      if (assistantMessage.content) {
-        conversation.messages.push(assistantMessage);
-      }
-
+     
       appStateContext?.dispatch({ type: 'UPDATE_CURRENT_CHAT', payload: conversation });
       appStateContext?.dispatch({ type: 'UPDATE_CHAT_HISTORY', payload: conversation });
+      conversation.messages = conversation.messages.map(m => {
+      if (m.role === ASSISTANT && Array.isArray((m as any).citations)) {
+        // Already has citations, keep as is
+        return m;
+      }
+      if (m.role === ASSISTANT && Array.isArray(latestCitations) && latestCitations.length > 0) {
+        // Attach latest citations if missing
+        return { ...m, citations: latestCitations };
+      }
+      return m;
+    });
       try {
         // Save to backend so messages persist
         await historyUpdate(conversation.messages, conversation.id);
@@ -465,51 +531,67 @@ let latestCitations: any[] = [];
   }
 };
 
+
+
   // Handle chat selection on initial load
 const selectedChat = getCurrentChat();
 const { theme, setTheme } = useTheme();
 const [isCollapsed, setIsCollapsed] = useState(false);
 
   return (
-    <div className="h-screen bg-background flex w-full overflow-hidden">
-      {!open && (
-        <Button
-          onClick={() => setOpen(true)}
-          className="fixed my-2 mx-3 top-4 left-4 z-50 h-10 w-10 p-0 rounded-full shadow-lg bg-primary hover:bg-primary/90"
-        >
-          <Menu className="h-5 w-5" />
-        </Button>
-      )}
-
-      <div className="flex flex-1">
+    <div className="h-screen bg-background flex w-full overflow-visible">
+      {/* Sidebar Toggle Button */}
       
-          {open ? (
-        <Sidebar
-          chats={mappedChats}
-          activeChat={activeChat}
-          onSelectChat={handleSelectChat}
-          onNewChat={handleNewChat}
-          onDeleteChat={handleDeleteChat}
-          onRenameChat={handleRenameChat}
-          isCollapsed={isCollapsed}
-          onToggleCollapse={() => setIsCollapsed(prev => !prev)}
-          isDarkMode={theme === "dark"}
-          onToggleDarkMode={() => setTheme(theme === "dark" ? "light" : "dark")}
-          onShareChat={handleShareChat}
+
+      {/* Sidebar Overlay + Panel (animated) */}
+      <div
+        className={`
+          fixed inset-0 z-[20] 
+          ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}
+          transition-opacity duration-300
+        `}
+        aria-hidden={!isOpen}
+      >
+        {/* Backdrop */}
+        <div
+          className="fixed inset-0 z-[50] bg-black/50"
+          onClick={() => setIsOpen(false)}
         />
-        ) : null}
-  
-        
+
+        {/* Sliding Panel */}
+        <div
+          className={`
+            fixed inset-y-0 left-0 z-[100]
+            w-80 bg-card shadow-xl
+            transform transition-transform duration-300 
+            ${isOpen ? 'translate-x-0' : '-translate-x-full'}
+          `}
+          style={{
+              visibility: isOpen ? 'visible' : 'hidden', // Ensure visibility toggles
+              maxWidth: '100vw',
+            }}
+        >
+          <Sidebar
+            chats={mappedChats}
+            activeChat={activeChat}
+            onSelectChat={handleSelectChat}
+            onNewChat={handleNewChat}
+            onDeleteChat={handleDeleteChat}
+            onRenameChat={handleRenameChat}
+            isCollapsed={!isOpen}
+            onToggleCollapse={toggleSidebar}
+            isDarkMode={theme === "dark"}
+            onToggleDarkMode={() => setTheme(theme === "dark" ? "light" : "dark")}
+            onShareChat={handleShareChat}
+          />
+        </div>
+      </div>
+
+      {/* Main Content Area */}
+      <div className="flex flex-1">
         <div className="flex-1 flex justify-center">
           <ChatInterface
-            messages={currentChat?.messages?.map(m => ({
-              id: m.id,
-              content: normalizeContent(m.content),
-              role: m.role as "user" | "assistant",
-              timestamp: m.date ? new Date(m.date) : new Date(),
-              // keep citations if present (your stream sets them on assistantMessage)
-              citations: Array.isArray((m as any).citations) ? (m as any).citations : []
-            })) || []}
+            messages={renderedMessages}
             onSendMessage={handleSendMessage}
             isLoading={isLoading}
               chatTitle={
@@ -520,11 +602,15 @@ const [isCollapsed, setIsCollapsed] = useState(false);
             onShareChat={() => activeChat && handleShareChat(activeChat)}
             onStopGeneration={() => setIsLoading(false)}
             showCentered={!currentChat}
-            isCollapsed={isCollapsed}
+            isCollapsed={!isOpen}
+            toggleSidebar={toggleSidebar} // Pass toggleSidebar function
+            isSidebarCollapsed={isOpen}  // Pass sidebar state
+            scrollSignal={scrollSignal} 
           />
         </div>
       </div>
-
+      
+      {/* Share Dialog */}    
       <ShareDialog
         isOpen={shareDialogOpen}
         onClose={() => setShareDialogOpen(false)}
