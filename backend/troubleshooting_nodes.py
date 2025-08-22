@@ -1,14 +1,21 @@
+from pydantic import Field, BaseModel
 from langgraph.types import StreamWriter 
 from backend.state import State
 from langchain.schema import SystemMessage, HumanMessage
 from backend.client import get_llm, get_embedding_llm, get_vectorstore
 from types import SimpleNamespace
 import uuid, time
+import cohere
 
 
 llm = get_llm()
 embedding_llm = get_embedding_llm()
 
+class RouteResponse(BaseModel):
+    rewritten: str = Field(..., description="The rewritten user question that is clear and self-contained.")
+
+
+llm_rewritter = llm.with_structured_output(RouteResponse)
 
 async def trblsht_rewriter(state: State) -> dict:
     # Get the last 7 messages
@@ -28,19 +35,48 @@ async def trblsht_rewriter(state: State) -> dict:
     )
 
     # Send to LLM as structured output
-    result = llm.invoke([system, *last_messages])
-    print("Rewritten question:", result.content.strip())
-    return {"rewritten": result.content.strip()}
+    result = llm_rewritter.invoke([system, *last_messages])
+    print("Rewritten question:", result.rewritten.strip())
+    return {"rewritten": result.rewritten.strip()}
 
 
 async def retriever_node(state: State) -> State:
     vectorstore = get_vectorstore()
     retriever = vectorstore.as_retriever(
         search_type="hybrid",
-        k=6
+        k=10
     )
     hits = await retriever.aget_relevant_documents(state["rewritten"])
     return {**state, "hits": hits}
+
+async def rerank(state: State) -> dict:
+    """Rerank retrieved_docs by relevance to question using Cohere Rerank."""
+    COHERE_API_KEY = "zOxAfT9v1nO8fk2yFWqcl1TQQcbwnWqDtsVPs6x3"
+    co = cohere.Client(api_key=COHERE_API_KEY)
+
+    hits  = state["hits"]
+    query = state["rewritten"]
+    corpus = [d.page_content for d in hits]
+
+    # Models: 'rerank-3.5' (best), 'rerank-3', or 'rerank-lite' (cheaper)
+    resp = co.rerank(
+        model="rerank-english-v3.0",
+        query=query,
+        documents=corpus,
+        top_n=5,   # adjust as you like
+        return_documents=True
+    )
+    results = resp.results
+    top1 = float(results[0].relevance_score)
+    cutoff = top1 * 0.40
+    new_hits = []
+    keep = [r.index for r in results if float(r.relevance_score) >= cutoff]
+    for i in keep:
+        h = hits[i]
+        new_hits.append(h)
+    
+    return {**state, "hits": new_hits}
+
 
 async def context_window_node(state: State, writer: StreamWriter) -> dict:
     docs = state.get("hits", [])
