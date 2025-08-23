@@ -4,6 +4,7 @@ import time
 from types import SimpleNamespace
 import uuid
 import asyncio
+from typing import Any, Dict, cast
 from quart import (
     Blueprint,
     Quart,
@@ -25,23 +26,28 @@ from backend.settings import (
 )
 from backend.utils import (
     format_as_ndjson,
-    format_stream_response
+    format_stream_response,
+    format_stream_response_stream_messages
 )
 from langchain_core.messages import SystemMessage
 from langgraph.types import StreamWriter 
 
 #from backend.router_nodes import router_node
 from backend.custom_langgraph.router_graph import router_node
-from backend.state import State
+from backend.state import State, AgentInputState
 from backend.drawing_nodes import drawing_rewriter_node, page_locator_node, mech_drwg_ans
 from backend.troubleshooting_nodes import trblsht_rewriter, retriever_node, context_window_node, rerank
+from backend.deep_research.deep_research_graph import scope_research
 from langgraph.graph import StateGraph, END
 
 from langchain_openai import AzureChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain.schema import HumanMessage, AIMessage
+from langchain_core.runnables import RunnableConfig
 import os
 from backend.client import get_llm
+from langgraph.checkpoint.memory import InMemorySaver
+from uuid import uuid4
 
 llm = get_llm()
 
@@ -203,50 +209,53 @@ async def general_agent(state: State, writer: StreamWriter) -> dict:
             ))
     return {"route": "general"}
 
-def build_graph():
-    graph = StateGraph(State)
+# def build_graph():
+#     graph = StateGraph(State)
 
-    graph.add_node("router", router_node) # type: ignore
-    graph.add_node("trblsht_rewrite", trblsht_rewriter)
-    graph.add_node("drawing_rewriter", drawing_rewriter_node)  
-    graph.add_node("retriever_node", retriever_node)
-    graph.add_node("page_locator", page_locator_node) 
-    graph.add_node("mech_drwg_ans", mech_drwg_ans)
-    graph.add_node("context_window_node", context_window_node)
-    graph.add_node("general", general_agent)
-    graph.add_node("rerank", rerank)
+#     graph.add_node("router", router_node) # type: ignore
+#     graph.add_node("trblsht_rewrite", trblsht_rewriter)
+#     graph.add_node("drawing_rewriter", drawing_rewriter_node)  
+#     graph.add_node("retriever_node", retriever_node)
+#     graph.add_node("page_locator", page_locator_node) 
+#     graph.add_node("mech_drwg_ans", mech_drwg_ans)
+#     graph.add_node("context_window_node", context_window_node)
+#     graph.add_node("general", general_agent)
+#     graph.add_node("rerank", rerank)
 
-    graph.set_entry_point("router")
-    # --- Conditional branch after router based on state["route"] ---
-    graph.add_conditional_edges(
-        "router",
-        lambda state: state["route"],
-        {
-            "mechanical_drawing": "drawing_rewriter",
-            "uncertain": END,              # ← end the graph here
-            "troubleshooting": "trblsht_rewrite",
-            "general": "general",
-        }
-    )
-    graph.add_edge("drawing_rewriter", "page_locator")
-    graph.add_edge("trblsht_rewrite", "retriever_node")
-    graph.add_edge("retriever_node", "rerank")
-    graph.add_edge("rerank", "context_window_node")
-    graph.add_conditional_edges(
-        "page_locator",
-        lambda state: state["route"],
-        {
-            "return": END,
-            "mechanical_drawing": "mech_drwg_ans",
-        }
-    )
-    graph.set_finish_point("mech_drwg_ans")
-    graph.set_finish_point("router")
+#     graph.set_entry_point("router")
+#     # --- Conditional branch after router based on state["route"] ---
+#     graph.add_conditional_edges(
+#         "router",
+#         lambda state: state["route"],
+#         {
+#             "mechanical_drawing": "drawing_rewriter",
+#             "uncertain": END,              # ← end the graph here
+#             "troubleshooting": "trblsht_rewrite",
+#             "general": "general",
+#         }
+#     )
+#     graph.add_edge("drawing_rewriter", "page_locator")
+#     graph.add_edge("trblsht_rewrite", "retriever_node")
+#     graph.add_edge("retriever_node", "rerank")
+#     graph.add_edge("rerank", "context_window_node")
+#     graph.add_conditional_edges(
+#         "page_locator",
+#         lambda state: state["route"],
+#         {
+#             "return": END,
+#             "mechanical_drawing": "mech_drwg_ans",
+#         }
+#     )
+#     graph.set_finish_point("mech_drwg_ans")
+#     graph.set_finish_point("router")
 
 
-    return graph.compile()
+#     return graph.compile()
 
-query_router_graph = build_graph()
+# query_router_graph = build_graph()
+
+
+
 
 async def stream_chat_request(request_body, request_headers):
     """Stream the assistant response *and* let the final chunk carry citations.
@@ -257,22 +266,40 @@ async def stream_chat_request(request_body, request_headers):
     """
 
     # 2️ Any metadata you want to keep flowing through
-    history_md = request_body.get("history_metadata", {})
+    history_md: Dict[str, Any] = cast(Dict[str, Any], request_body.get("history_metadata") or {})
+    history_md["model"] = (
+    request_headers.get("x-ms-deployment-name")  # Azure header
+    or request_headers.get("openai-model")       # if you pass it through
+    or "gpt-4o"
+    )
+
+    conv_id: str = str(history_md.get("conversation_id") or uuid4().hex)
+    config: RunnableConfig = {"configurable": {"thread_id": conv_id}}
 
     # convert messages from request body to chathistory for langchain
     messages = request_body.get("messages", [])
     chat_history = convert_messages_to_chat_history(messages[-7:])
 
-    state = State(
-        messages=chat_history,  # last 7 messages only
-        route="",
-        rewritten="",
-        pages=[],
-        hits=[],
-        context=""
-    )
+    input_state = AgentInputState(messages=chat_history)
+    
+    # messages mode yields (token_chunk, metadata)
+    async for token_chunk, md in scope_research.astream(
+        input_state, config=config, stream_mode="messages"
+    ):
+        print("Token chunk:", token_chunk)
+        print("Metadata:", md)
+        # # Prefer a concrete request id if LangGraph/LS provides it; otherwise make one
+        # req_id = (
+        #     md.get("ls_request_id")
+        #     or md.get("x-request-id")
+        #     or request_headers.get("x-request-id")
+        #     or uuid4().hex
+        # )
 
-    async for chunk in query_router_graph.astream(state, stream_mode="custom"):
+        # event = format_stream_response_stream_messages(token_chunk, history_md, req_id)
+        # yield event
+
+    async for chunk in query_router_graph.astream(State, stream_mode="custom"):
         # `chunk` is still your SimpleNamespace here
         event = format_stream_response(chunk, history_md, chunk.id)  # now pass ID correctly
         yield event

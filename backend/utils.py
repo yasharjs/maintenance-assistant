@@ -3,6 +3,8 @@ import json
 import logging
 import requests
 import dataclasses
+import time
+from langchain_core.messages import AIMessageChunk
 
 from typing import List
 
@@ -161,6 +163,58 @@ def format_stream_response(chatCompletionChunk, history_metadata, apim_request_i
 
     return {}
 
+def format_stream_response_stream_messages(chat_chunk, history_metadata, apim_request_id):
+    """Accept either Azure/OpenAI SDK chunks OR LangChain AIMessageChunk."""
+    # If it's a LangChain AIMessageChunk (messages stream mode)
+    if isinstance(chat_chunk, AIMessageChunk):
+        text_delta = _normalize_content(chat_chunk.content)
+        tool_calls = chat_chunk.additional_kwargs.get("tool_calls") if chat_chunk.additional_kwargs else None
+
+        delta: dict = {"role": "assistant"}
+        # content tokens
+        if text_delta:
+            delta["content"] = text_delta
+        # streamed tool calls (if any)
+        if tool_calls:
+            delta["tool_calls"] = tool_calls
+
+        # Use model from metadata (we set it in the caller), fall back to "unknown"
+        model_name = (history_metadata or {}).get("model") or "unknown"
+
+        return {
+            "id": apim_request_id,
+            "model": model_name,
+            "created": int(time.time()),
+            "object": "chat.completion.chunk",
+            "choices": [{"index": 0, "delta": delta, "finish_reason": None}],
+            "history_metadata": history_metadata or {},
+            "apim-request-id": apim_request_id,
+        }
+
+    # Otherwise, assume it's an OpenAI/Azure chunk as before
+    # (your existing code path — keep whatever you had)
+    response_obj = {
+        "id": getattr(chat_chunk, "id", apim_request_id),
+        "model": getattr(chat_chunk, "model", (history_metadata or {}).get("model", "unknown")),
+        "created": getattr(chat_chunk, "created", int(time.time())),
+        "object": getattr(chat_chunk, "object", "chat.completion.chunk"),
+        "choices": [{"messages": []}],
+        "history_metadata": history_metadata or {},
+        "apim-request-id": apim_request_id,
+    }
+    # ...your existing logic that handled delta/context/citations...
+    return response_obj
+
+
+def _normalize_content(c):
+    if isinstance(c, list):
+        # join only text segments
+        return "".join(
+            seg.get("text", "")
+            for seg in c
+            if isinstance(seg, dict) and seg.get("type") == "text"
+        )
+    return c or ""
 
 def format_pf_non_streaming_response(
     chatCompletion, history_metadata, response_field_name, citations_field_name, message_uuid=None
