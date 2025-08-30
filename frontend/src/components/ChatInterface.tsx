@@ -1,7 +1,10 @@
-/* eslint-disable indent */
-/* eslint-disable react/jsx-indent */
+/* eslint-disable object-curly-newline */
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { useEffect, useRef, useState } from "react";
+/* eslint-disable react/jsx-indent */
+/* eslint-disable indent */
+/* eslint-disable comma-dangle */
+/* eslint-disable simple-import-sort/imports */
+import React, { useDeferredValue, useEffect, useRef, useState } from "react";
 import { Check,
   Copy,
   MessageSquare,
@@ -11,22 +14,31 @@ import { Check,
   Sparkles,
   Square,
   ThumbsDown,
-  ThumbsUp } from "lucide-react";
-
-import type { ChatInterfaceProps, Citation } from "@/types/chats";
+  ThumbsUp,
+  ChevronDown } from "lucide-react";
+import logoImage from '@/assets/logo.png';
 
 import { historyMessageFeedback } from "../api/api";
-import CitationPane from "../components/citations/CitationPane";
-import CitationStrip from "../components/citations/CitationStrip";
 import { Button } from "../components/ui/button";
 import { ScrollArea } from "../components/ui/scroll-area";
 import { Textarea } from "../components/ui/textarea";
 import { useToast } from "../hooks/use-toast";
 import { cn } from "../lib/utils";
-
 import Markdown from "./ui/Markdown";
+import type { ChatInterfaceProps } from "@/types/chats";
 
-const ChatInterface: React.FC<ChatInterfaceProps> = ({
+//citations
+import CitationStrip from "../components/citations/CitationStrip";
+import CitationPane from "../components/citations/CitationPane";
+import type { Citation } from "@/types/chats";
+import { Menu } from "lucide-react";
+const MemoMarkdown = React.memo(Markdown);
+
+const ChatInterface: React.FC<ChatInterfaceProps & { 
+  toggleSidebar: () => void; 
+  isSidebarCollapsed: boolean; 
+  scrollSignal?: number;
+}> = ({
   messages,
   onSendMessage,
   isLoading,
@@ -34,28 +46,133 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   onShareChat,
   onStopGeneration,
   showCentered = false,
-  isCollapsed = false
+  isCollapsed = false,
+  toggleSidebar, // Add toggleSidebar prop
+  isSidebarCollapsed, // Add isSidebarCollapsed prop
+  scrollSignal  
 }) => {
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [showJump, setShowJump] = useState(false);
+  const [forceTyping, setForceTyping] = useState(false);
+ // Show indicator if: (normal rule) OR (debug forced)
+  const deferredMessages = useDeferredValue(messages);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const { toast } = useToast();
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({
-      behavior: 'smooth'
+  const autoResize = () => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto"; // reset to measure
+    const maxPx = parseFloat(getComputedStyle(el).maxHeight || "0");
+    const next = Math.min(el.scrollHeight, Number.isFinite(maxPx) ? maxPx : el.scrollHeight);
+    el.style.height = `${next}px`;
+    el.style.overflowY = el.scrollHeight > next ? "auto" : "hidden";
+};
+// --- Title gating: show only after first assistant message finishes streaming
+const hasAssistantMsg = messages?.some(m => m.role === "assistant");
+const hasRealTitle =
+  Boolean(chatTitle?.trim()) && chatTitle !== "New Chat";
+const canShowTitle = hasAssistantMsg && !isLoading && hasRealTitle;
+
+// Run once on mount and whenever input text changes
+useEffect(() => { autoResize(); }, []);
+useEffect(() => { autoResize(); }, [input]);
+
+// (Optional) keep height correct on viewport resize (vh-based caps)
+useEffect(() => {
+  const onResize = () => autoResize();
+  window.addEventListener("resize", onResize);
+  return () => window.removeEventListener("resize", onResize);
+}, []);
+
+  const {
+    toast
+  } = useToast();
+// Get the Radix ScrollArea viewport (so we can control scroll precisely)
+  const getViewport = () =>
+    messagesEndRef.current?.closest("[data-radix-scroll-area-viewport]") as HTMLElement | null;
+
+  const isNearBottom = (viewport: HTMLElement, threshold = 80) => {
+    const { scrollTop, clientHeight, scrollHeight } = viewport;
+    return scrollHeight - (scrollTop + clientHeight) < threshold;
+  };
+
+  // Only smooth-scroll when NOT streaming; instant scroll during streaming,
+  // and never steal scroll if user has scrolled up.
+  const scrollToBottom = (behavior: ScrollBehavior) => {
+    const viewport = getViewport();
+    if (!viewport) {
+      messagesEndRef.current?.scrollIntoView({ behavior });
+      return;
+    }
+    if (!isNearBottom(viewport) && isLoading) return; // respect user scroll while streaming
+    viewport.scrollTo({ top: viewport.scrollHeight, behavior });
+  };
+
+  useEffect(() => {
+  // only act on deliberate signals (> 0) and when there is content
+  if (!scrollSignal || messages.length === 0) return;
+
+  // wait for layout to settle
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      scrollToBottom("auto");
+    });
+  });
+}, [scrollSignal]);
+  useEffect(() => {
+    if (isLoading) {
+      // streaming started: ensure the button is hidden
+      setShowJump(false);
+    } else {
+      // streaming finished: recompute whether we should show it
+      const viewport = getViewport();
+      if (viewport) {
+        const atBottom = isNearBottom(viewport, 80);
+        setShowJump(!atBottom);
+      }
+  }
+}, [isLoading]);
+  useEffect(() => {
+    if (messages.some(m => m.role === "assistant")) setIsTyping(false);
+  }, [messages]);
+
+  useEffect(() => {
+  const viewport = getViewport();
+  if (!viewport) return;
+
+  let ticking = false;
+  const onScroll = () => {
+    if (isLoading || ticking) return;   // skip updates while streaming
+    ticking = true;
+    requestAnimationFrame(() => {
+      const atBottom = isNearBottom(viewport, 80);
+      setShowJump(prev => {
+        const next = !atBottom;
+        return prev === next ? prev : next; // update only if changed
+      });
+      ticking = false;
     });
   };
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+
+  // Initialize only if not streaming
+  if (!isLoading) onScroll();
+
+  viewport.addEventListener("scroll", onScroll);
+  return () => viewport.removeEventListener("scroll", onScroll);
+}, [isLoading, messages]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (input.trim() && !isLoading) {
       onSendMessage(input.trim());
       setInput('');
       setIsTyping(true);
+      // NEW: force an instant jump to bottom as soon as user sends
+      requestAnimationFrame(() => scrollToBottom("auto"));
+      // If your first message doesn't jump reliably, use a double RAF:
+      // requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom("auto")));
       setTimeout(() => setIsTyping(false), 1000);
     }
   };
@@ -83,36 +200,36 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     }
   };
   
-  const handleFeedback = async (messageId: string, type: 'up' | 'down') => {
+const handleFeedback = async (messageId: string, type: 'up' | 'down') => {
   // Show a toast immediately for UX responsiveness
-    toast({
-      title: `Feedback ${type === 'up' ? 'positive' : 'negative'}`,
-      description: "Submitting your feedback..."
-    });
+  toast({
+    title: `Feedback ${type === 'up' ? 'positive' : 'negative'}`,
+    description: "Submitting your feedback..."
+  });
 
-    try {
-      const response = await historyMessageFeedback(messageId, type);
+  try {
+    const response = await historyMessageFeedback(messageId, type);
 
-      if (response.ok) {
-        toast({
-          title: "Feedback recorded",
-          description: "Thank you for helping us improve!"
-        });
-      } else {
-        toast({
-          title: "Feedback failed",
-          description: "Please try again later.",
-          variant: "destructive"
-        });
-      }
-    } catch (err) {
+    if (response.ok) {
       toast({
-        title: "Error submitting feedback",
+        title: "Feedback recorded",
+        description: "Thank you for helping us improve!"
+      });
+    } else {
+      toast({
+        title: "Feedback failed",
         description: "Please try again later.",
         variant: "destructive"
       });
     }
-  };
+  } catch (err) {
+    toast({
+      title: "Error submitting feedback",
+      description: "Please try again later.",
+      variant: "destructive"
+    });
+  }
+};
   const handleShare = () => {
     const shareUrl = `${window.location.origin}${window.location.pathname}`;
     navigator.clipboard.writeText(shareUrl);
@@ -122,23 +239,20 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     });
     onShareChat?.();
   };
-
-  const TypingIndicator = () => (
-    <div className="flex items-center space-x-2 text-muted-foreground px-6 py-4">
+  const TypingIndicator = () => <div className="flex items-center space-x-2 text-foreground dark:dark:text-foreground px-4 py-4">
       <div className="flex space-x-1">
         <div className="w-2 h-2 bg-current rounded-full animate-bounce" style={{
-          animationDelay: "0ms" 
-        }} />
+        animationDelay: '0ms'
+      }} />
         <div className="w-2 h-2 bg-current rounded-full animate-bounce" style={{
-          animationDelay: "150ms" 
-        }} />
+        animationDelay: '150ms'
+      }} />
         <div className="w-2 h-2 bg-current rounded-full animate-bounce" style={{
-          animationDelay: "300ms" 
-        }} />
+        animationDelay: '300ms'
+      }} />
       </div>
       <span className="text-sm">Thinking...</span>
-    </div>
-  );
+    </div>;
 
   const isCentered = showCentered && messages.length === 0;
 
@@ -150,213 +264,233 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     setPaneCitations(cits);
     setRefPaneOpen(true);
   };
-
+  const lastIsAssistant = messages[messages.length - 1]?.role === "assistant";
+  const showTypingIndicator = (isLoading && !lastIsAssistant) || forceTyping;
   
-  return (
-    <div className="flex-1 min-w-0 relative isolate flex flex-col h-screen bg-chat-background">
-      {/* Header */}
-      <div className="sticky top-0 z-10 border-b border-chat-border p-3 bg-card/50 backdrop-blur-xl">
-        <div className="max-w-5xl w-full mx-auto flex items-center justify-between">
-          <h1 className="text-xl font-semibold text-foreground flex items-center">
-            <Sparkles className="w-5 h-5 mr-2 text-muted-foreground" />
-            {chatTitle}
-          </h1>
-          <div className="flex items-center space-x-4 ml-auto">
-            <span className="text-sm text-muted-foreground">
-              {messages.length} messages
-            </span>
-            {messages.length > 0 && onShareChat && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleShare}
-                className="h-8 px-3 text-xs"
-              >
-                <Share2 className="w-3 h-3 mr-1" />
-                Share
-              </Button>
-            )}
-          </div>
+  return <div
+  className="flex-1 flex flex-col h-screen bg-chat-background transition-[padding-right] duration-200"
+  
+>
+
+  {/* Uncomment to debug the typing indicator */}
+  {/* {import.meta.env.DEV && (
+  <div className="fixed bottom-24 right-4 z-50 rounded-xl bg-black/60 text-white px-3 py-2 text-xs">
+    <label className="inline-flex items-center space-x-2">
+      <input
+        type="checkbox"
+        checked={forceTyping}
+        onChange={e => setForceTyping(e.target.checked)}
+      />
+      <span>TypingIndicator (debug)</span>
+    </label>
+  </div>
+)} */}
+    {/* Header */}
+    <div className="border-b border-chat-border p-4 bg-card/50 backdrop-blur-xl  z-10 ">
+      <div className="flex items-center w-full px-2 sm:px-4 relative">
+        {/* Sidebar Toggle Button */}
+        <Button
+          onClick={toggleSidebar}
+          className="h-10 w-10 rounded-full shadow-lg bg-[#343541] dark:bg-primary dark:hover:bg-primary/80 hover:bg-[#343541]/80"
+        >
+          <Menu className="h-5 w-5" />
+        </Button>
+
+        {/* Centered Title */}
+        {/* Centered Title */}
+        <h1 className="absolute left-1/2 transform -translate-x-1/2 text-xl font-semibold text-[#343541] dark:text-white truncate max-w-[60%] sm:max-w-[70%] text-center">
+          {canShowTitle ? chatTitle : "Maintenance Agent"}
+        </h1>
+        
+        {/* Share Button on Right */}
+        <div className="ml-auto flex items-center">
+          {messages.length > 0 && onShareChat && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleShare}
+              className="h-8 px-3 text-sm text-[#343541] dark:text-white hover:bg-[#343541]/10 dark:hover:bg-primary/20 transition-colors duration-200"
+            >
+              <Share2 className="w-3 h-3" />
+              Share
+            </Button>
+          )}
         </div>
       </div>
+    </div>
 
       {/* Messages */}
-      <ScrollArea
-        className={cn("flex-1", isCentered ? "flex items-center justify-center" : "py-4 px-4 sm:px-6 md:px-8 lg:px-12")}
-      >
-        <div className={cn("w-full space-y-8 px-4 sm:px-6 md:px-8 lg:px-12", isCentered && "mx-auto")}>
+            <ScrollArea className={cn("flex-1", isCentered ? "flex items-center justify-center" : " pt-4")}>
+                <div className={cn(
+                  "w-full max-w-[95vw] sm:max-w-xl md:max-w-2xl lg:max-w-3xl mx-auto px-2 sm:px-4",              // NEW: centered column + even gutters
+                  isCentered ? "" : "space-y-6"   ,
+                  "pb-28 sm:pb-32"              // tighter vertical rhythm like ChatGPT
+                )}>
 
-          {messages.length === 0 && isCentered ? <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-8 py-0 my-[100px]">
-            <div className="text-center space-y-4">
-              <h1 className="text-4xl font-bold text-foreground">
-                What's on your mind today?
-              </h1>
-            </div>
-            <div className="w-full max-w-2xl">
-              <form onSubmit={handleSubmit} className="relative">
-                <div className="relative group">
-                  <Textarea ref={textareaRef} value={input} onChange={e => setInput(e.target.value)} onKeyDown={handleKeyDown} placeholder="Ask anything..." className={cn("min-h-[60px] max-h-[200px] pr-14 resize-none transition-all duration-200", "bg-chat-input border-chat-border focus:ring-ring focus:ring-2", "hover:shadow-lg hover:border-border", "rounded-2xl text-base leading-relaxed", "placeholder:text-muted-foreground/60", "shadow-lg")} disabled={isLoading} />
-                  <Button type="submit" size="icon" disabled={!input.trim() || isLoading} className={cn("absolute right-3 bottom-3 h-10 w-10 rounded-xl", "bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground transition-all duration-200", "hover:scale-105 active:scale-95", "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100")}>
-                    <Send className="w-4 h-4" />
-                  </Button>
-                </div>
-              </form>
-            </div>
-          </div> : messages.length === 0 ? <div className="text-center py-20 space-y-6">
-            <div className="w-20 h-20 mx-auto bg-gradient-to-br from-muted/50 to-muted/20 rounded-full flex items-center justify-center">
-              <MessageSquare className="w-10 h-10 text-muted-foreground" />
-            </div>
-            <div className="space-y-2">
-              <h2 className="text-3xl font-bold text-foreground">
-                Ready when you are.
-              </h2>
-              <p className="text-muted-foreground text-lg">
-                Start a conversation and I'll help you with anything you need.
-              </p>
-            </div>
-          </div> : messages.map(message => <div key={message.id} className={cn("group mb-6 transition-all duration-200", message.role === 'user' ? "flex justify-end" : "flex justify-start")}>
-            <div className={cn("max-w-[80%] transition-all duration-200", message.role === 'user' ? "ml-8" : "mr-8")}>
-              {/* Message Content */}
-              <div className={cn("p-3 rounded-2xl transition-all duration-200 block w-fit max-w-full", 
-                "hover:shadow-xl hover:dark:shadow-white/20",
-                message.role === 'user' ? "bg-chat-message-user text-primary-foreground hover:shadow-primary/20 hover:dark:shadow-primary/30" : "bg-chat-message-assistant text-foreground border border-chat-border/30 hover:shadow-black/10 hover:dark:shadow-white/15")}>
-                {message.role === "assistant" ? (
-                  <Markdown content={message.content} />
-                ) : (
-                  <p className="whitespace-pre-wrap leading-relaxed text-sm m-0">
-                    {message.content}
-                  </p>
-                )}
+          {messages.length === 0 && isCentered ? <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-8 py-0 my-[0px]">
+              <div className="text-center space-y-4">
+                <h1 className="text-4xl font-semibold text-[#343541] dark:text-white">
+                  What's on your mind today?
+                </h1>
               </div>
+              <div className="w-full max-w-2xl">
+                <form onSubmit={handleSubmit} className="relative">
+                  <div className="relative group">
+                  <Textarea
+                    ref={textareaRef}
+                    value={input}
+                    onChange={(e) => { setInput(e.target.value); requestAnimationFrame(autoResize); }}
+                    onKeyDown={handleKeyDown}
+                    placeholder="Ask anything."
+                    className={cn(
+                      "min-h-[56px] sm:min-h-[64px] max-h-[50vh] sm:max-h-[45vh] md:max-h-[40vh] lg:max-h-[35vh]",
+                      "overflow-y-auto pr-14 resize-none transition-all duration-200",
+                      // keep the styles you already have in this block:
+                      "bg-white border-[#343541] placeholder-slate-400",
+                      "dark:bg-zinc-900 dark:border-zinc-200",
+                      "focus:ring-ring focus:ring-2 hover:shadow-lg hover:border-border"
+                    )}
+                    disabled={isLoading}
+                  />               
+                    <Button type="submit" size="icon" disabled={!input.trim() || isLoading} className={cn("absolute right-3 bottom-3 h-10 w-10 rounded-xl", "bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground transition-all duration-200", "hover:scale-105 active:scale-95", "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100")}>
+                      <Send className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </form>
+              </div>
+            </div> : messages.length === 0 ? <div className="text-center py-20 space-y-6">
+              <div className="w-20 h-20 mx-auto bg-gradient-to-br from-muted/50 to-muted/20 rounded-full flex items-center justify-center">
+                <MessageSquare className="w-10 h-10 text-muted-foreground" />
+              </div>
+              <div className="space-y-2">
+                <h2 className="text-3xl font-bold text-foreground">
+                  Ready when you are.
+                </h2>
+                <p className="text-muted-foreground text-lg">
+                  Start a conversation and I'll help you with anything you need.
+                </p>
+              </div>
+      </div> : deferredMessages.map(message => <div key={message.id} className={cn("group  mt-1 mb-6 transition-all duration-200", message.role === 'user' ? "flex justify-end" : "flex justify-start")}>
+                <div className={cn("transition-all duration-200", message.role === 'user' ? "max-w-[75%]" : "w-full")}>
+                   {/* Message Content */}
+                   <div className={cn("px-4 py-3 rounded-2xl transition-all duration-200 w-full", 
+                   
+                    message.role === "user"
+                    ? "bg-[#444654] dark:bg-[#343541] text-white"
+                    : "bg-gray-200/0 dark:bg-chat-message-assistant/0 text-foreground border border-chat-border/0")}>
 
-              {/* References count / chips */}
-              {message.role === "assistant" &&
-                  Array.isArray(message.citations) &&
-                  message.citations.length > 0 && (
-                  <div className="mt-2">
-                  <CitationStrip citations={message.citations} onOpen={openRefs} />
+                      {message.role === "assistant" ? (
+                        <MemoMarkdown content={message.content} />                      ) : (
+                        <p className="whitespace-pre-wrap leading-relaxed text-[15px] text-left m-0">
+                          {message.content}
+                        </p>
+                      )}
+                   </div>
+
+                    {/* References count / chips */}
+                    {message.role === "assistant" &&
+                      Array.isArray(message.citations) &&
+                      message.citations.length > 0 && (
+                        <div className="mt-2">
+                          <CitationStrip citations={message.citations} onOpen={openRefs} />
+                        </div>
+                    )}
+
+                  {/* Message Actions */}
+                  <div className={cn("flex items-center mt-1 px-0 opacity-0 group-hover:opacity-100 transition-all duration-200", message.role === 'user' ? "justify-end" : "justify-start")}>
+                    <div className="flex items-center space-x-1">
+                      <Button variant="ghost" size="sm" onClick={() => copyToClipboard(message.content, message.id)} className="h-7 px-2 text-xs hover:bg-muted/50">
+                        {copiedId === message.id ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3" />}
+                      </Button>
+                      
+                      {message.role === 'assistant' && <>
+                          <Button variant="ghost" size="sm" onClick={() => handleFeedback(message.id, 'up')} className="h-7 px-2 text-xs hover:bg-muted/50 hover:text-green-600">
+                            <ThumbsUp className="w-3 h-3" />
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => handleFeedback(message.id, 'down')} className="h-7 px-2 text-xs hover:bg-muted/50 hover:text-red-600">
+                            <ThumbsDown className="w-3 h-3" />
+                          </Button>
+                          
+                        </>}
+                    </div>
+                    
+                    <span className="text-xs text-muted-foreground ml-2">
+                      {message.timestamp.toLocaleTimeString([], {
+                  hour: '2-digit',
+                  minute: '2-digit'
+                })}
+                    </span>
+                  </div>
                 </div>
-              )}
+              </div>)}
 
-              {/* Message Actions */}
-              <div
-                className={cn(
-                  "flex items-center mt-1 px-0 opacity-0 group-hover:opacity-100 transition-all duration-200",
-                  message.role === "user" ? "justify-end" : "justify-start"
-                )}
-              >
-                <div className="flex items-center space-x-1">
+          {showTypingIndicator && (
+          <div className="group mb-6 flex justify-start">
+            <div className="max-w-[80%] transition-all duration-200">
+              <div className="bg-gray-200/80 dark:bg-chat-message-assistant text-[#444654]  border border-chat-border/30 p-2 rounded-2xl">
+                <TypingIndicator />
+              </div>
+              {onStopGeneration && (
+                <div className="flex items-center mt-2 px-2">
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => copyToClipboard(message.content, message.id)}
-                    className="h-7 px-2 text-xs hover:bg-muted/50"
+                    onClick={onStopGeneration}
+                    className="h-7 px-3 text-xs hover:bg-muted/50 text-red-600 hover:text-red-700"
                   >
-                    {copiedId === message.id ? (
-                      <Check className="w-3 h-3 text-green-500" />
-                    ) : (
-                      <Copy className="w-3 h-3" />
-                    )}
+                    <Square className="w-3 h-3 mr-1" />
+                    Stop
                   </Button>
-
-                  {message.role === "assistant" && (
-                    <>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleFeedback(message.id, "up")}
-                        className="h-7 px-2 text-xs hover:bg-muted/50 hover:text-green-600"
-                      >
-                        <ThumbsUp className="w-3 h-3" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleFeedback(message.id, "down")}
-                        className="h-7 px-2 text-xs hover:bg-muted/50 hover:text-red-600"
-                      >
-                        <ThumbsDown className="w-3 h-3" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2 text-xs hover:bg-muted/50"
-                      >
-                        <RotateCcw className="w-3 h-3" />
-                      </Button>
-                    </>
-                  )}
                 </div>
-
-                <span className="text-xs text-muted-foreground ml-2">
-                  {message.timestamp.toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit"
-                  })}
-                </span>
-              </div>
+              )}
             </div>
           </div>
-          )}
-          {(isLoading || isTyping) && (
-            <div className="group mb-6 flex justify-start">
-              <div className="max-w-[80%] mr-8 hover:shadow-lg transition-all duration-200">
-                <div className="bg-chat-message-assistant text-foreground border border-chat-border/30 p-4 rounded-2xl">
-                  <TypingIndicator />
-                </div>
-                {isLoading && onStopGeneration && (
-                  <div className="flex items-center mt-2 px-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={onStopGeneration}
-                      className="h-7 px-3 text-xs hover:bg-muted/50 text-red-600 hover:text-red-700"
-                    >
-                      <Square className="w-3 h-3 mr-1" />
-                      Stop
-                    </Button>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+        )}
 
           <div ref={messagesEndRef} />
         </div>
       </ScrollArea>
-
+      {!isLoading && showJump && (
+      <div
+        className={
+          // Centered overlay, above the input
+          // If your input area is taller/shorter, tweak the bottom offset.
+          "pointer-events-none fixed inset-x-0  bottom-36  z-[10] flex justify-center"
+        }
+      >
+        <Button
+          onClick={() => requestAnimationFrame(() => scrollToBottom("auto"))}
+          className="pointer-events-auto h-8 px-2 rounded-full shadow-lg bg-[#343541] dark:bg-foreground text-primary-foreground hover:bg-primary/90 transition-opacity"
+        >
+          <ChevronDown className="w-4 h-4" />
+        
+          <span className="sr-only">Scroll to latest</span>
+        </Button>
+      </div>
+    )}
       {/* Input Area - Only show when not centered or when there are messages */}
-      {!isCentered && (
-        <div className="border-t border-chat-border bg-card/50 backdrop-blur-xl px-4 sm:px-6 lg:px-8 py-4">
-          <div className="max-w-5xl mx-auto md:max-w-3xl lg:max-w-5xl">
+      {!isCentered && <div className="border-t border-chat-border bg-card/50 backdrop-blur-xl px-4 py-4 ">
+          <div className="max-w-3xl mx-auto">
             <form onSubmit={handleSubmit} className="relative">
               <div className="relative group">
                 <Textarea
-                  ref={textareaRef}
-                  value={input}
-                  onChange={e => setInput(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder="Ask anything..."
-                  className={cn(
-                    "min-h-[60px] max-h-[200px] pr-14 resize-none transition-all duration-200",
-                    "bg-chat-input border-chat-border focus:ring-ring focus:ring-2",
-                    "hover:shadow-lg hover:border-border",
-                    "rounded-2xl text-base leading-relaxed",
-                    "placeholder:text-muted-foreground/60"
-                  )}
-                  disabled={isLoading}
-                />
-                <Button
-                  type="submit"
-                  size="icon"
-                  disabled={!input.trim() || isLoading}
-                  className={cn(
-                    "absolute right-3 bottom-3 h-10 w-10 rounded-xl",
-                    "bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground transition-all duration-200",
-                    "hover:scale-105 active:scale-95",
-                    "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
-                  )}
-                >
+  ref={textareaRef}
+  value={input}
+  onChange={(e) => { setInput(e.target.value); requestAnimationFrame(autoResize); }}
+  onKeyDown={handleKeyDown}
+  placeholder="Ask anything."
+  className={cn(
+    // Auto-grow baseline + responsive max height (taller cap on smaller screens)
+    " min-h-[56px] sm:min-h-[64px] max-h-[50vh] sm:max-h-[45vh] md:max-h-[40vh] lg:max-h-[35vh]",
+    "overflow-y-auto pr-14 resize-none transition-all duration-200",
+    // keep your existing theming & focus rings
+    "!bg-chat-input dark:bg-red-900 border-chat-border focus:ring-ring focus:ring-2",
+    "rounded-2xl text-base leading-relaxed",
+    "placeholder:text-muted-foreground/60"
+  )}
+  disabled={isLoading}
+/>
+                <Button type="submit" size="icon" disabled={!input.trim() || isLoading} className={cn("absolute right-3 bottom-3 h-10 w-10 rounded-xl", "bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground transition-all duration-200", "hover:scale-105 active:scale-95", "disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100")}>
                   <Send className="w-4 h-4" />
                 </Button>
               </div>
@@ -365,16 +499,15 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
               AI can make mistakes. Consider checking important information.
             </p>
           </div>
-        </div>
-      )}
+        </div>}
 
       <CitationPane
         open={refPaneOpen}
         citations={paneCitations}
         onClose={() => setRefPaneOpen(false)}
       />
-    </div>
-  );
+
+    </div>;
 };
 export default ChatInterface;
 

@@ -1,15 +1,22 @@
+/* eslint-disable jsx-a11y/no-static-element-interactions */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-/* eslint-disable @typescript-eslint/no-unused-vars */
-/* eslint-disable import/no-extraneous-dependencies */
-/* eslint-disable no-constant-condition */
+/* eslint-disable react-hooks/exhaustive-deps */
+/* eslint-disable arrow-parens */
+/* eslint-disable comma-dangle */
+/* eslint-disable react/jsx-indent-props */
 
-import { useContext, useEffect, useState } from "react";
+/* eslint-disable import/no-extraneous-dependencies */
+/* eslint-disable object-curly-spacing */
+/* eslint-disable no-empty */
+/* eslint-disable no-constant-condition */
+/* eslint-disable prefer-const */
+/* eslint-disable object-curly-newline */
+/* eslint-disable indent */
+/* eslint-disable @typescript-eslint/no-unused-vars */
+// eslint-disable-next-line simple-import-sort/imports
+import React, { useContext, useEffect, useMemo, useState } from "react";
 import { Menu } from "lucide-react";
 import { v4 as uuid } from "uuid";
-
-import { cn } from "@/lib/utils";
-import type { Chat } from "@/types/chats";
-
 import { conversationApi,
   frontendSettings,
   historyDelete,
@@ -17,21 +24,23 @@ import { conversationApi,
   historyList,
   historyRead,
   historyRename, 
-  historyUpdate } from "../api/api";
-import { ChatMessage, Conversation,ConversationRequest } from "../api/models";
+  historyUpdate} from "../api/api";
+import { ConversationRequest, ChatMessage, Conversation } from "../api/models";
 import ChatInterface from "../components/ChatInterface";
 import ShareDialog from "../components/ShareDialog";
-import Sidebar from "../components/Sidebar";
-import { useTheme } from "../components/ThemeProvider";
 import { Button } from "../components/ui/button";
 import { SidebarProvider, useSidebar } from "../components/ui/sidebar";
 import { useToast } from "../hooks/use-toast";
 import { AppStateContext } from "../state/AppProvider";
+import { useTheme } from "../components/ThemeProvider";
+import Sidebar from "../components/Sidebar";
+import type { Chat } from "@/types/chats";
 
 // Roles from old Chat.tsx
 const ASSISTANT = "assistant";
 const TOOL = "tool";
 const ERROR = "error";
+
 
 // Parse citations from tool messages (for UI if needed later)
 const parseCitationFromMessage = (message: ChatMessage) => {
@@ -60,7 +69,7 @@ const tryGetRaiPrettyError = (errorMessage: string) => {
         return `Prompt blocked by Azure OpenAI’s content filter. Reason: Jailbreak`;
       }
     }
-  } catch { /* empty */ }
+  } catch {}
   return errorMessage;
 };
 
@@ -71,7 +80,7 @@ const parseErrorMessage = (errorMessage: string) => {
       let innerErrorString = errorMessage.substring(errorMessage.indexOf(innerErrorCue));
       innerErrorString = innerErrorString.replaceAll("\\'", "'");
       return tryGetRaiPrettyError(innerErrorString);
-    } catch { /* empty */ }
+    } catch {}
   }
   return tryGetRaiPrettyError(errorMessage);
 };
@@ -83,60 +92,80 @@ const MainContent = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [shareDialogChatId, setShareDialogChatId] = useState<string>("");
-  const [isCollapsed, setIsCollapsed] = useState(false);
-
+  const [isOpen, setIsOpen] = useState(false); // Single state for sidebar
   const { toast } = useToast();
-  const { open, setOpen } = useSidebar();
-  const { theme, setTheme } = useTheme();
+  const [scrollSignal, setScrollSignal] = useState(0);
 
-  // Load chat history
+
   useEffect(() => {
-    async function loadSettings() {
-      try {
-        const settingsData = await frontendSettings();
-        if (settingsData) {
-          appStateContext?.dispatch({
-            type: "FETCH_FRONTEND_SETTINGS",
-            payload: settingsData
-          });
-        }
-      } catch (err) {
-        console.error("Failed to fetch frontend settings", err);
-      }
-    }
-    loadSettings();
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setIsOpen(false);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+ const toggleSidebar = () => {
+    setIsOpen((prev) => !prev);
+  };
 
-  // Load frontend settings
-  useEffect(() => {
-    async function loadHistory() {
-      try {
-        const chatHistory = await historyList();
+// Load chat history
+useEffect(() => {
+  async function loadSettings() {
+    try {
+      const settingsData = await frontendSettings();
+      if (settingsData) {
+        appStateContext?.dispatch({
+          type: "FETCH_FRONTEND_SETTINGS",
+          payload: settingsData
+        });
+      }
+    } catch (err) {
+      console.error("Failed to fetch frontend settings", err);
+    }
+  }
+  loadSettings();
+}, []);
 
-        if (chatHistory) {
+
+// Load frontend settings
+useEffect(() => {
+  async function loadHistory() {
+    try {
+      const chatHistory = await historyList();
+
+      if (chatHistory) {
         // Fill missing titles with a fallback before dispatch
-          const filledHistory = chatHistory.map(chat => ({
-            ...chat,
-            title: chat.title?.trim() || "Untitled Chat"
-          }));
+        const filledHistory = chatHistory.map(chat => ({
+          ...chat,
+          title: chat.title?.trim() || "Untitled Chat"
+        }));
 
-          appStateContext?.dispatch({
-            type: "FETCH_CHAT_HISTORY",
-            payload: filledHistory
-          });
-        }
-      } catch (err) {
-        console.error("Failed to load chat history", err);
+        appStateContext?.dispatch({
+          type: "FETCH_CHAT_HISTORY",
+          payload: filledHistory
+        });
       }
+    } catch (err) {
+      console.error("Failed to load chat history", err);
     }
-    loadHistory();
-  }, []);
+  }
+  loadHistory();
+}, []);
   
   // Get data from AppStateContext
   const chats = appStateContext?.state.chatHistory || [];
   const currentChat = appStateContext?.state.currentChat;
   const settings = appStateContext?.state.frontendSettings;
+  const renderedMessages = useMemo(
+  () =>
+    (currentChat?.messages?.map(m => ({
+      id: m.id,
+      content: typeof m.content === "string" ? m.content : "",
+      role: m.role as "user" | "assistant",
+      timestamp: m.createdAt ? new Date(m.createdAt) : new Date(),
+      citations: Array.isArray((m as any).citations) ? (m as any).citations : []
+    })) || []),
+  [currentChat?.messages]
+);
 
 
   function normalizeContent(content: any): string {
@@ -158,108 +187,114 @@ const MainContent = () => {
   }
 
   // Convert AppState chat history to local format
-  const truncateString = (str: string, n: number) =>
-    str && str.length > n ? str.slice(0, n) + "…" : str;
+const truncateString = (str: string, n: number) =>
+  str && str.length > n ? str.slice(0, n) + "…" : str;
 
-  const mappedChats: Chat[] = (chats || []).map(conv => {
-    let safeTitle = "";
+const mappedChats: Chat[] = (chats || []).map(conv => {
+  let safeTitle = "";
 
-    // Case 1: Title is a string
-    if (typeof conv.title === "string") {
-      safeTitle = conv.title.trim();
-    }
+  // Case 1: Title is a string
+  if (typeof conv.title === "string") {
+    safeTitle = conv.title.trim();
+  }
 
-    // Case 2: Title is an array
-    else if (Array.isArray(conv.title)) {
-      const firstBlock: any = conv.title[0]; // use any here to avoid never
+  // Case 2: Title is an array
+  else if (Array.isArray(conv.title)) {
+    const firstBlock: any = conv.title[0]; // use any here to avoid never
 
-      if (
-        firstBlock &&
+    if (
+      firstBlock &&
       typeof firstBlock === "object" &&
       "type" in firstBlock &&
       firstBlock.type === "text" &&
       "text" in firstBlock &&
       typeof firstBlock.text === "string"
-      ) {
-        safeTitle = firstBlock.text.trim();
-      }
+    ) {
+      safeTitle = firstBlock.text.trim();
     }
+  }
 
-    // Fallback: First message content
-    if (!safeTitle) {
-      safeTitle =
+  // Fallback: First message content
+  if (!safeTitle) {
+    safeTitle =
       typeof conv.messages?.[0]?.content === "string"
         ? conv.messages[0].content
         : "New Chat";
-    }
+  }
     const lastMsg =
     Array.isArray(conv.messages) && conv.messages.length
       ? conv.messages[conv.messages.length - 1]
       : undefined;
 
-    return {
-      id: conv.id,
-      title: truncateString(safeTitle, 40), // always a string now
-      lastMessage: truncateString(
-        normalizeContent(typeof lastMsg?.content === "string" ? lastMsg.content : ""),
-        35
-      ),
-      timestamp: conv.date ? new Date(conv.date) : new Date(),
-      messages: (conv.messages || []).map(m => ({
-        id: m.id,
-        content: normalizeContent(
-          typeof m.content === "string" ? m.content : ""
-        ),
-        role: m.role as "user" | "assistant",
-        timestamp: m.date ? new Date(m.date) : new Date(),
-        citations: Array.isArray((m as any).citations) ? (m as any).citations : []
-      }))
-    };
-  });
+  return {
+    id: conv.id,
+    title: truncateString(safeTitle, 40), // always a string now
+    lastMessage: truncateString(
+      normalizeContent(typeof lastMsg?.content === "string" ? lastMsg.content : ""),
+      35
+    ),
+    timestamp: conv.date ? new Date(conv.date) : new Date(),
+    messages: (conv.messages || []).map(m => ({
+      id: m.id,
+      content: normalizeContent(m.content),
+      role: m.role as "user" | "assistant",
+      timestamp: m.createdAt ? new Date(m.createdAt) : new Date(),      
+      citations: Array.isArray(m.citations) ? m.citations : []
+    }))
+  };
+});
 
 
-  const getCurrentChat = () => {
+const getCurrentChat = () => {
+
     return mappedChats.find(chat => chat.id === activeChat);
   };
 
   // Select a chat and load it in AppState
-  const handleSelectChat = async (chatId: string) => {
-    setActiveChat(chatId);
+const handleSelectChat = async (chatId: string) => {
+  setActiveChat(chatId);
 
-    try {
+  try {
     // Find chat from mapped list
-      const chat = mappedChats.find(c => c.id === chatId);
-      if (!chat) return;
+    const chat = mappedChats.find(c => c.id === chatId);
+    if (!chat) return;
 
-      // Load messages for this chat
-      const messages = await historyRead(chatId);
+    // Load messages for this chat
+    
+    let messages = await historyRead(chatId);
 
-      // Create a proper Conversation object
-      const updatedChat: Conversation = {
-        id: chat.id,
-        title: chat.title,
-        date: chat.timestamp.toISOString(),
-        messages
-      };
+    // FIX: Normalize citations for each message
+    messages = (messages || []).map(m => ({
+      ...m,
+      citations: Array.isArray(m.citations) ? m.citations : []
+    }));
 
-      // Dispatch full Conversation
-      appStateContext?.dispatch({
-        type: "UPDATE_CURRENT_CHAT",
-        payload: updatedChat
-      });
-    } catch (err) {
-      console.error("Failed to load chat messages", err);
-    }
-  };
+    // Create a proper Conversation object
+    const updatedChat: Conversation = {
+      id: chat.id,
+      title: chat.title,
+      date: chat.timestamp.toISOString(),
+      messages
+    };
+
+    // Dispatch full Conversation
+    appStateContext?.dispatch({
+      type: "UPDATE_CURRENT_CHAT",
+      payload: updatedChat
+    });
+
+    setScrollSignal(s => s + 1);
+  } catch (err) {
+    console.error("Failed to load chat messages", err);
+  }
+};
 
 
   // Delete chat using AppState
   const handleDeleteChat = async (chatId: string) => {
     try {
       await historyDelete(chatId);
-      appStateContext?.dispatch({
-        type: 'DELETE_CHAT_ENTRY', payload: chatId 
-      });
+      appStateContext?.dispatch({ type: 'DELETE_CHAT_ENTRY', payload: chatId });
       if (activeChat === chatId) {
         setActiveChat(null);
       }
@@ -282,9 +317,7 @@ const MainContent = () => {
       await historyRename(chatId, newTitle);
       appStateContext?.dispatch({ 
         type: 'UPDATE_CHAT_TITLE', 
-        payload: {
-          id: chatId, title: newTitle 
-        } as any
+        payload: { id: chatId, title: newTitle } as any
       });
     } catch (err) {
       toast({
@@ -298,9 +331,7 @@ const MainContent = () => {
   // Create new chat
   const handleNewChat = async () => {
     setActiveChat(null);
-    appStateContext?.dispatch({
-      type: 'UPDATE_CURRENT_CHAT', payload: null 
-    });
+    appStateContext?.dispatch({ type: 'UPDATE_CURRENT_CHAT', payload: null });
   };
 
   const handleShareChat = (chatId: string) => {
@@ -309,102 +340,100 @@ const MainContent = () => {
   };
 
   // Send message using proper backend integration
-  const handleSendMessage = async (content: string) => {
-    const userMessage: ChatMessage = {
-      id: Date.now().toString(),
-      role: "user",
-      content,
-      date: new Date().toISOString()
-    };
+ const handleSendMessage = async (content: string) => {
+  const userMessage: ChatMessage = {
+    id: Date.now().toString(),
+    role: "user",
+    content,
+    date: new Date().toISOString()
+  };
 
-    setIsLoading(true);
-    const abortController = new AbortController();
-    let conversation = currentChat;
-    let request: ConversationRequest;
+  setIsLoading(true);
+  const abortController = new AbortController();
+  let conversation = currentChat;
+  let request: ConversationRequest;
 
-    let assistantMessage: ChatMessage = {
-      id: "", role: ASSISTANT, content: "", date: new Date().toISOString() 
-    };
-    let toolMessage: ChatMessage = {
-    } as ChatMessage;
-    let assistantContent = "";
-    let latestCitations: any[] = [];
+  let assistantMessage: ChatMessage = { id: "", role: ASSISTANT, content: "", date: new Date().toISOString() };
+  let toolMessage: ChatMessage = {} as ChatMessage;
+  let assistantContent = "";
+  let latestCitations: any[] = [];
 
-    try {
+  try {
     // Create new or use existing conversation
-      if (!conversation) {
-        conversation = {
-          id: Date.now().toString(),
-          title: content.slice(0, 50) + (content.length > 50 ? "..." : ""),
-          messages: [userMessage],
-          date: new Date().toISOString()
-        };
-        request = {
-          messages: [userMessage] 
-        };
-      } else {
-        conversation.messages.push(userMessage);
-        request = {
-          messages: conversation.messages.filter(msg => msg.role !== ERROR) 
-        };
-      }
+    if (!conversation) {
+      conversation = {
+        id: Date.now().toString(),
+        title: content.slice(0, 50) + (content.length > 50 ? "..." : ""),
+        messages: [userMessage],
+        date: new Date().toISOString()
+        
+      };
+      console.log("date : ", conversation.date);
+      request = { messages: [userMessage] };
+    } else {
+      // else-branch
+      conversation.messages = [...conversation.messages, userMessage];
 
-      appStateContext?.dispatch({
-        type: 'UPDATE_CURRENT_CHAT', payload: conversation 
-      });
-      setActiveChat(conversation.id);
+      request = { messages: conversation.messages.filter(msg => msg.role !== ERROR) };
+    }
 
-      const response = await historyGenerate(
-        request,
-        abortController.signal,
-        !currentChat ? undefined : conversation.id
-      );
+    appStateContext?.dispatch({ type: 'UPDATE_CURRENT_CHAT', payload: conversation });
+    setActiveChat(conversation.id);
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(parseErrorMessage(`Backend returned ${response.status}: ${errorText}`));
-      }
+    const response = await historyGenerate(
+      request,
+      abortController.signal,
+      !currentChat ? undefined : conversation.id
+    );
 
-      if (response?.body) {
-        const reader = response.body.getReader();
-        let runningText = '';
-        let finalResult: any = {
-        };
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(parseErrorMessage(`Backend returned ${response.status}: ${errorText}`));
+    }
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
+    if (response?.body) {
+      const reader = response.body.getReader();
+      let runningText = '';
+      let finalResult: any = {};
+      let assistantInserted = false;
+      let seenAssistantToken = false;
+      let framePending = false;
+      let lastFlushTs = 0;
+      let assistantMessageId: string | null = null;
+      const flush = () => {
+      // conversation is defined in this scope; copy to trigger React updates safely
+      appStateContext?.dispatch({ type: 'UPDATE_CURRENT_CHAT', payload: { ...conversation! } });
+    };
+      const scheduleFlush = () => {
+        if (framePending) return;
+        framePending = true;
+        requestAnimationFrame(() => {
+          flush();
+          framePending = false;
+        });
+      };
 
-          const text = new TextDecoder('utf-8').decode(value);
-          const objects = text.split('\n');
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-          for (const obj of objects) {
-            try {
-              if (obj && obj !== '{}') {
-                runningText += obj;
-                const result = JSON.parse(runningText);
-                finalResult = result;
+        const text = new TextDecoder('utf-8').decode(value);
+        const objects = text.split('\n');
 
-                // Capture citations
-                if (Array.isArray(result.citations)) latestCitations = result.citations;
+        for (const obj of objects) {
+          try {
+            if (obj && obj !== '{}') {
+              runningText += obj;
+              const result = JSON.parse(runningText);
+              finalResult = result;
 
-                if (result.choices?.length > 0) {
-                  result.choices[0].messages.forEach((msg: any) => {
-                    if (msg.role === ASSISTANT) {
-                      assistantContent += msg.content;
-                      assistantMessage = {
-                        ...assistantMessage, ...msg, id: msg.id || uuid()
-                      }; 
-                      assistantMessage.content = assistantContent;
+              // Capture citations
+              if (Array.isArray(result.citations)) latestCitations = result.citations;
 
-                      if (Array.isArray(latestCitations) && latestCitations.length > 0) {
-                        (assistantMessage as any).citations = latestCitations;
-                      }
-                    }
+              if (result.choices?.length > 0) {
+                result.choices[0].messages.forEach((msg: any) => {
                     if (msg.role === TOOL) {
-                      toolMessage = {
-                        ...msg, id: msg.id || uuid() 
-                      };
+                      toolMessage = { ...msg, id: msg.id || uuid() };
                       // NEW: try to extract citations from tool JSON
                       try {
                         if (typeof msg.content === "string") {
@@ -413,128 +442,176 @@ const MainContent = () => {
                             latestCitations = parsed.citations;
                           }
                         }
-                      } catch { /* empty */ }
+                      } catch {}
                     }
-                  });
-                }
-                runningText = '';
+                  
+                  if (msg.role === ASSISTANT) {
+                    if (!assistantMessageId) {
+                      assistantMessageId = msg.id || uuid();
+                    }
+                    assistantContent += msg.content;
+                    assistantMessage = {...assistantMessage, ...msg, id: assistantMessageId }; 
+                    assistantMessage.content = assistantContent;
+
+                    if (Array.isArray(latestCitations) && latestCitations.length > 0) {
+                      (assistantMessage as any).citations = latestCitations;
+                    }
+                    // Update the conversation in real-time as we stream
+                    const assistantIndex = conversation.messages.findIndex(m => m.id === assistantMessageId);
+                    const nextMessages =
+                    assistantIndex === -1
+                      ? [...conversation.messages, { ...assistantMessage }]
+                      : conversation.messages.map((m, i) => (i === assistantIndex ? { ...assistantMessage } : m));
+
+                  conversation.messages = nextMessages;
+                  scheduleFlush();
+                  }
+                
+                });
               }
-            } catch (e) {
-              if (!(e instanceof SyntaxError)) throw e;
+              runningText = '';
             }
+          } catch (e) {
+            if (!(e instanceof SyntaxError)) throw e;
           }
         }
-        // Title fallback logic
-        if (!currentChat && finalResult.history_metadata) {
-          conversation.id = finalResult.history_metadata.conversation_id;
-          conversation.title =
+      }
+      // Title fallback logic
+      if (!currentChat && finalResult.history_metadata) {
+        conversation.id = finalResult.history_metadata.conversation_id;
+        conversation.title =
           finalResult.history_metadata.title?.trim() ||
           content.slice(0, 50) + (content.length > 50 ? "..." : "");
-          conversation.date = finalResult.history_metadata.date;
-        }
+        conversation.date = finalResult.history_metadata.date;
+      }
 
-        // Append tool message first if present
-        if (Object.keys(toolMessage).length > 0) {
-          conversation.messages.push(toolMessage);
-        }
-
-        if (assistantMessage.content) {
-          conversation.messages.push(assistantMessage);
-        }
-
-        appStateContext?.dispatch({
-          type: 'UPDATE_CURRENT_CHAT', payload: conversation 
-        });
-        appStateContext?.dispatch({
-          type: 'UPDATE_CHAT_HISTORY', payload: conversation 
-        });
-        try {
+     
+      appStateContext?.dispatch({ type: 'UPDATE_CURRENT_CHAT', payload: conversation });
+      appStateContext?.dispatch({ type: 'UPDATE_CHAT_HISTORY', payload: conversation });
+      conversation.messages = conversation.messages.map(m => {
+      if (m.role === ASSISTANT && Array.isArray((m as any).citations)) {
+        // Already has citations, keep as is
+        return m;
+      }
+      if (m.role === ASSISTANT && Array.isArray(latestCitations) && latestCitations.length > 0) {
+        // Attach latest citations if missing
+        return { ...m, citations: latestCitations };
+      }
+      return m;
+    });
+      try {
         // Save to backend so messages persist
-          await historyUpdate(conversation.messages, conversation.id);
-        } catch (e) {
-          console.error("Failed to save conversation to backend:", e);
-        }
-
-      }
-    } catch (err) {
-      console.error("Error sending message:", err);
-
-      const errorMessage: ChatMessage = {
-        id: Date.now().toString(),
-        role: ERROR,
-        content: `Error: ${err instanceof Error ? err.message : 'Unknown error occurred'}`,
-        date: new Date().toISOString()
-      };
-
-      if (conversation) {
-        conversation.messages.push(errorMessage);
-        appStateContext?.dispatch({
-          type: 'UPDATE_CURRENT_CHAT', payload: conversation 
-        });
+        await historyUpdate(conversation.messages, conversation.id);
+      } catch (e) {
+        console.error("Failed to save conversation to backend:", e);
       }
 
-      toast({
-        title: "Error",
-        description: "Failed to send message to AI backend.",
-        variant: "destructive"
-      });
-    } finally {
-      setIsLoading(false);
     }
-  };
+  } catch (err) {
+    console.error("Error sending message:", err);
+
+    const errorMessage: ChatMessage = {
+      id: Date.now().toString(),
+      role: ERROR,
+      content: `Error: ${err instanceof Error ? err.message : 'Unknown error occurred'}`,
+      date: new Date().toISOString()
+    };
+
+    if (conversation) {
+      conversation.messages.push(errorMessage);
+      appStateContext?.dispatch({ type: 'UPDATE_CURRENT_CHAT', payload: conversation });
+    }
+
+    toast({
+      title: "Error",
+      description: "Failed to send message to AI backend.",
+      variant: "destructive"
+    });
+  } finally {
+    setIsLoading(false);
+  }
+};
+
+
+
+  // Handle chat selection on initial load
+const selectedChat = getCurrentChat();
+const { theme, setTheme } = useTheme();
+const [isCollapsed, setIsCollapsed] = useState(false);
 
   return (
-    <div className="h-screen bg-app-background flex flex-col md:flex-row w-full overflow-hidden" style={{
-      border: 'none' 
-    }}>
-      {/* Sidebar */}
-      <div className={cn(
-        "transition-all duration-300 flex flex-col shrink-0 z-10",
-        isCollapsed ? "w-16" : "w-80",
-        "md:block",
-        "hidden md:flex"
-      )} style={{
-        backgroundColor: 'hsl(var(--app-background))', borderRight: 'none' 
-      }}>
-        <Sidebar
-          chats={mappedChats}
-          activeChat={activeChat}
-          onSelectChat={handleSelectChat}
-          onNewChat={handleNewChat}
-          onDeleteChat={handleDeleteChat}
-          onRenameChat={handleRenameChat}
-          isCollapsed={isCollapsed}
-          onToggleCollapse={() => setIsCollapsed(prev => !prev)}
-          onToggleDarkMode={() => setTheme(theme === "dark" ? "light" : "dark")}
-          onShareChat={handleShareChat} isDarkMode={false}        />
-      </div>
+    <div className="h-screen bg-background flex w-full overflow-visible">
+      {/* Sidebar Toggle Button */}
+      
 
-      {/* Chat Interface */}
-      <div className="flex-1 flex z-20" style={{
-        backgroundColor: 'hsl(var(--chat-background))', borderLeft: 'none' 
-      }}>
-        <ChatInterface
-          messages={currentChat?.messages?.map(m => ({
-            id: m.id,
-            content: normalizeContent(m.content),
-            role: m.role as "user" | "assistant",
-            timestamp: m.date ? new Date(m.date) : new Date(),
-            citations: Array.isArray((m as any).citations) ? (m as any).citations : []
-          })) || []}
-          onSendMessage={handleSendMessage}
-          isLoading={isLoading}
-          chatTitle={
-            currentChat?.title?.trim() ||
-            settings?.ui?.chat_title?.trim() ||
-            "New Chat"
-          }
-          onShareChat={() => activeChat && handleShareChat(activeChat)}
-          onStopGeneration={() => setIsLoading(false)}
-          showCentered={!currentChat}
-          isCollapsed={isCollapsed}
+      {/* Sidebar Overlay + Panel (animated) */}
+      <div
+        className={`
+          fixed inset-0 z-[20] 
+          ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}
+          transition-opacity duration-300
+        `}
+        aria-hidden={!isOpen}
+      >
+        {/* Backdrop */}
+        <div
+          className="fixed inset-0 z-[50] bg-black/50"
+          onClick={() => setIsOpen(false)}
         />
+
+        {/* Sliding Panel */}
+        <div
+          className={`
+            fixed inset-y-0 left-0 z-[100]
+            w-80 bg-card shadow-xl
+            transform transition-transform duration-300 
+            ${isOpen ? 'translate-x-0' : '-translate-x-full'}
+          `}
+          style={{
+              visibility: isOpen ? 'visible' : 'hidden', // Ensure visibility toggles
+              maxWidth: '100vw',
+            }}
+        >
+          <Sidebar
+            chats={mappedChats}
+            activeChat={activeChat}
+            onSelectChat={handleSelectChat}
+            onNewChat={handleNewChat}
+            onDeleteChat={handleDeleteChat}
+            onRenameChat={handleRenameChat}
+            isCollapsed={!isOpen}
+            onToggleCollapse={toggleSidebar}
+            isDarkMode={theme === "dark"}
+            onToggleDarkMode={() => setTheme(theme === "dark" ? "light" : "dark")}
+            onShareChat={handleShareChat}
+          />
+        </div>
       </div>
 
+      {/* Main Content Area */}
+      <div className="flex flex-1">
+        <div className="flex-1 flex justify-center">
+          <ChatInterface
+            messages={renderedMessages}
+            onSendMessage={handleSendMessage}
+            isLoading={isLoading}
+              chatTitle={
+                currentChat?.title?.trim() ||
+                settings?.ui?.chat_title?.trim() ||
+                "New Chat"
+              }
+            onShareChat={() => activeChat && handleShareChat(activeChat)}
+            onStopGeneration={() => setIsLoading(false)}
+            showCentered={!currentChat}
+            isCollapsed={!isOpen}
+            toggleSidebar={toggleSidebar} // Pass toggleSidebar function
+            isSidebarCollapsed={isOpen}  // Pass sidebar state
+            scrollSignal={scrollSignal} 
+          />
+        </div>
+      </div>
+      
+      {/* Share Dialog */}    
       <ShareDialog
         isOpen={shareDialogOpen}
         onClose={() => setShareDialogOpen(false)}
