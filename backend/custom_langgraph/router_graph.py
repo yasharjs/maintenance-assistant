@@ -1,12 +1,8 @@
-import asyncio
-from unittest import result
-from langgraph.graph import StateGraph
-from typing import Dict, Any, Tuple, Optional, Literal
-from langgraph.graph.message import add_messages
+from typing import  Literal
 from backend.client import get_llm
 from pydantic import BaseModel, Field
 from langchain_core.messages import SystemMessage
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_core.messages import HumanMessage, AIMessage
 import uuid, time
 from types import SimpleNamespace
 from langgraph.types import StreamWriter 
@@ -78,8 +74,6 @@ few_shots = [
     HumanMessage(content="values?"),
     AIMessage(content="uncertain"),
 
-    HumanMessage(content="servo valve command values"),
-    AIMessage(content="uncertain"),
 
     
 ]
@@ -192,7 +186,7 @@ async def router_node(state: State, writer: StreamWriter) -> dict:
     # Use last up-to-5 messages as history for context continuity
     history_msgs = state["messages"][-5:]
     last_msg = state["messages"][-1]
-    query = last_msg.content.strip().lower()
+    query = last_msg.content.strip()
 
     # Run the hybrid router (deterministic → LLM) and get follow-up support
     result = await _hybrid_route_with_followup(query, history_msgs)
