@@ -32,16 +32,17 @@ from langgraph.types import StreamWriter
 
 #from backend.router_nodes import router_node
 from backend.custom_langgraph.router_graph import router_node
-from backend.state import State
+from backend.state import State, ReasoningInputState, ReasoningOutputState
 from backend.drawing_nodes import drawing_rewriter_node, page_locator_node, mech_drwg_ans
 from backend.troubleshooting_nodes import trblsht_rewriter, retriever_node, context_window_node, rerank
-from langgraph.graph import StateGraph, END
+from langgraph.graph import StateGraph, END, START
 
 from langchain_openai import AzureChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain.schema import HumanMessage, AIMessage
 import os
 from backend.client import get_llm
+from backend.agents.langgraph_agents import llm_call, should_continue, tool_node, output_node
 
 llm = get_llm()
 
@@ -246,7 +247,33 @@ def build_graph():
 
     return graph.compile()
 
-query_router_graph = build_graph()
+def reasoning_graph():
+    # Build the agent workflow
+    agent_builder = StateGraph(ReasoningInputState, output_schema=ReasoningOutputState)
+
+    # Add nodes to the graph
+    agent_builder.add_node("llm_call", llm_call)
+    agent_builder.add_node("tool_node", tool_node)
+    agent_builder.add_node("output_node", output_node)
+
+    # Add edges to connect nodes
+    agent_builder.add_edge(START, "llm_call")
+    agent_builder.add_conditional_edges(
+        "llm_call",
+        should_continue,
+        {
+            "tool_node": "tool_node", # Continue research loop
+            "output_node": "output_node", # Provide final answer
+        },
+    )
+    agent_builder.add_edge("tool_node", "llm_call") # Loop back for more research
+    agent_builder.add_edge("output_node", END)
+
+    # Compile the agent
+
+    return agent_builder.compile()
+
+AgentSmith = reasoning_graph()
 
 async def stream_chat_request(request_body, request_headers):
     """Stream the assistant response *and* let the final chunk carry citations.
@@ -255,24 +282,20 @@ async def stream_chat_request(request_body, request_headers):
         JSON-parses every line, so each `yield` must be one COMPLETE JSON object
         on its own line (format_stream_response handles that for us).
     """
-
+    prompt = """You are a smart research assistant. Use the search engine to look up information. \
+                You are allowed to make multiple calls (either together or in sequence). \
+                Only look up information when you are sure of what you want. \
+                If you need to look up some information before asking a follow up question, you are allowed to do that!
+            """
+    
     # 2️ Any metadata you want to keep flowing through
     history_md = request_body.get("history_metadata", {})
 
     # convert messages from request body to chathistory for langchain
     messages = request_body.get("messages", [])
-    chat_history = convert_messages_to_chat_history(messages[-7:])
-
-    state = State(
-        messages=chat_history,  # last 7 messages only
-        route="",
-        rewritten="",
-        pages=[],
-        hits=[],
-        context=""
-    )
-
-    async for chunk in query_router_graph.astream(state, stream_mode="custom"):
+    chat_history = convert_messages_to_chat_history(messages[-1:])
+    initial_state: ReasoningInputState = {"reasoning_messages": chat_history, "tool_call_iterations": 0}
+    async for chunk in AgentSmith.astream(initial_state, stream_mode="custom"):
         # `chunk` is still your SimpleNamespace here
         event = format_stream_response(chunk, history_md, chunk.id)  # now pass ID correctly
         yield event
