@@ -304,9 +304,19 @@ const handleFeedback = async (messageId: string, type: 'up' | 'down') => {
   </div>
 )} */}
     {/* Header (sticky, consistent height, behind rail) */}
-    <div className="sticky top-0 h-16 flex items-center border-b border-chat-border px-4 bg-card/50 backdrop-blur-xl z-[20] ">
-      <div className="flex items-center w-full px-2 sm:px-4 relative">
-        {/* Hide header toggle; use floating launcher instead */}
+  <div className="sticky top-0 h-16 flex items-center border-b border-chat-border px-4 bg-card/50 backdrop-blur-xl z-[20] ">
+    <div className="flex items-center w-full px-2 sm:px-4 relative">
+        {/* Mobile: show a hamburger to open the sidebar */}
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={toggleSidebar}
+          className="sm:hidden mr-2 h-9 w-9"
+          aria-label="Open sidebar"
+          title="Open sidebar"
+        >
+          <Menu className="h-5 w-5" />
+        </Button>
 
 <h1
   className="absolute left-1/2 -translate-x-1/2 transform

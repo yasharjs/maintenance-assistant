@@ -8,3 +8,4 @@ static/
 __pycache__/
 .ipynb_checkpoints/
 frontend/dist/
+warp.md

@@ -653,47 +653,52 @@ const [isCollapsed, setIsCollapsed] = useState(false);
       />
       {/* Collapsed launcher (top-left) + thin rail opener */}
       {!isOpen && (
-      <>
-        {/* Clickable thin rail along the left edge */}
-        <button
-        type="button"
-        aria-label="Open sidebar"
-        onClick={() => setIsOpen(true)}
-        className="fixed inset-y-0 left-0 z-[55] w-16 cursor-ew-resize group bg-chat-background"
-      >
-          {/* Draw the divider on the inner edge so it separates content clearly */}
-          <div className="h-full w-px ml-auto bg-sidebar-border group-hover:bg-foreground/40 transition-colors" />
-        </button>
+        <>
+          {/* Clickable thin rail along the left edge (hidden on mobile) */}
+          <button
+            type="button"
+            aria-label="Open sidebar"
+            onClick={() => setIsOpen(true)}
+            className="hidden sm:block fixed inset-y-0 left-0 z-[55] w-16 cursor-ew-resize group bg-chat-background"
+          >
+            {/* Divider on inner edge */}
+            <div className="h-full w-px ml-auto bg-sidebar-border group-hover:bg-foreground/40 transition-colors" />
+          </button>
 
-        {/* Floating quick actions at the top */}
-        <div className="fixed top-4 z-[60] flex flex-col gap-2"
-           style={{ left: "calc(4rem / 2 - 1.25rem)" }}>
-          <Button
-          variant="ghost"
-          size="icon"
-          title="New Chat"
-          aria-label="New Chat"
-          className="h-10 w-10 rounded-full bg-muted/30 dark:bg-zinc-800/50 hover:bg-muted/60 dark:hover:bg-zinc-700/70 backdrop-blur"
-          onClick={() => { handleNewChat(); setIsOpen(true); }}
-        >
-            <Plus className="w-4 h-4" />
-          </Button>
-          <Button
-          variant="ghost"
-          size="icon"
-          title="Search"
-          aria-label="Search"
-          className="h-10 w-10 rounded-full bg-muted/30 dark:bg-zinc-800/50 hover:bg-muted/60 dark:hover:bg-zinc-700/70 backdrop-blur"
-          onClick={() => {
-            setSearchText("");
-            setIsSearchOpen(true);
-          }}
-        >
-            <Search className="w-4 h-4" />
-          </Button>
-        </div>
-      </>
-    )}
+          {/* Floating quick actions at the top (hidden on mobile) */}
+          <div
+            className="hidden sm:flex fixed top-4 z-[60] flex-col gap-2"
+            style={{ left: "calc(4rem / 2 - 1.25rem)" }}
+          >
+            <Button
+              variant="ghost"
+              size="icon"
+              title="New Chat"
+              aria-label="New Chat"
+              className="h-10 w-10 rounded-full bg-muted/30 dark:bg-zinc-800/50 hover:bg-muted/60 dark:hover:bg-zinc-700/70 backdrop-blur"
+              onClick={() => {
+                handleNewChat();
+                setIsOpen(true);
+              }}
+            >
+              <Plus className="w-4 h-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              title="Search"
+              aria-label="Search"
+              className="h-10 w-10 rounded-full bg-muted/30 dark:bg-zinc-800/50 hover:bg-muted/60 dark:hover:bg-zinc-700/70 backdrop-blur"
+              onClick={() => {
+                setSearchText("");
+                setIsSearchOpen(true);
+              }}
+            >
+              <Search className="w-4 h-4" />
+            </Button>
+          </div>
+        </>
+      )}
 
       {/* Centered Search Modal for collapsed state */}
       {isSearchOpen && (
