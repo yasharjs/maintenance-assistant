@@ -202,3 +202,15 @@
 }
 .navLeft  { left: 16px;  }
 .navRight { right: 16px; }
+
+/* New next/prev buttons for zoom carousel */
+.prevBtn, .nextBtn {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  width: 36px; height: 36px; border-radius: 9999px;
+  border: 1px solid var(--cit-border, #444);
+  background: var(--cit-pane-bg, #1a1a1a); color: var(--cit-fg, #eee);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; opacity: .95;
+}
+.prevBtn { left: 16px; }
+.nextBtn { right: 16px; }

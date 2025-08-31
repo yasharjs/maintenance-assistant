@@ -4,7 +4,7 @@
 /* eslint-disable jsx-a11y/no-static-element-interactions */
 /* eslint-disable simple-import-sort/imports */
 /* eslint-disable jsx-a11y/no-noninteractive-element-interactions */
-import react, { useState, useEffect, useRef } from "react";
+import react, { useState, useEffect, useMemo, useRef } from "react";
 import styles from "./Citations.module.css";
 import type { Citation } from "@/types/chats";
 
@@ -15,33 +15,40 @@ type Props = {
 };
 
 export default function CitationPane({ open, citations, onClose }: Props) {
-  const [zoomUrl, setZoomUrl] = useState<string | null>(null);
+  const imageUrls = useMemo(() => (citations || []).map(c => c.url).filter(Boolean) as string[], [citations]);
+  const [zoomIndex, setZoomIndex] = useState<number | null>(null);
   const paneRef = useRef<HTMLDivElement | null>(null);
   
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        if (zoomUrl) setZoomUrl(null);
+        if (zoomIndex !== null) setZoomIndex(null);
         else if (open) onClose();
+      } else if (zoomIndex !== null && (e.key === "ArrowRight" || e.key === "ArrowLeft")) {
+        e.preventDefault();
+        const delta = e.key === "ArrowRight" ? 1 : -1;
+        const total = imageUrls.length;
+        const next = (zoomIndex + delta + total) % total;
+        setZoomIndex(next);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, zoomUrl, onClose]);
+  }, [open, zoomIndex, imageUrls, onClose]);
 
   useEffect(() => {
     if (!open) return;
     const handleDown = (e: MouseEvent) => {
-      if (zoomUrl) return; // don’t close pane while zoom is open
+      if (zoomIndex !== null) return; // don’t close pane while zoom is open
       const pane = paneRef.current;
       if (pane && !pane.contains(e.target as Node)) onClose();
     };
     document.addEventListener("mousedown", handleDown);
     return () => document.removeEventListener("mousedown", handleDown);
-  }, [open, zoomUrl, onClose]);
+  }, [open, zoomIndex, onClose]);
 
    useEffect(() => {
-    if (zoomUrl) {
+    if (zoomIndex !== null) {
       document.body.style.overflow = "hidden";
     } else {
       document.body.style.overflow = "";
@@ -50,7 +57,7 @@ export default function CitationPane({ open, citations, onClose }: Props) {
     return () => {
       document.body.style.overflow = "";
     };
-  }, [zoomUrl]);
+  }, [zoomIndex]);
 
   return (
     <>
@@ -83,7 +90,7 @@ export default function CitationPane({ open, citations, onClose }: Props) {
                       className={styles.thumb}
                       src={c.url}
                       alt={c.title || "reference"}
-                      onClick={() => setZoomUrl(c.url!)}
+                      onClick={() => setZoomIndex(imageUrls.indexOf(c.url!))}
                     />
                 </>
               )}
@@ -93,13 +100,31 @@ export default function CitationPane({ open, citations, onClose }: Props) {
       </aside>
 
       {/* Zoom overlay */}
-      <div className={`${styles.zoom} ${zoomUrl ? styles.zoomOpen : ""}`} onClick={() => setZoomUrl(null)}>
-        {zoomUrl && (
+      <div className={`${styles.zoom} ${zoomIndex !== null ? styles.zoomOpen : ""}`} onClick={() => setZoomIndex(null)}>
+        {zoomIndex !== null && imageUrls[zoomIndex] && (
           <>
-            <button className={styles.zoomClose} onClick={() => setZoomUrl(null)}>
+            <button className={styles.zoomClose} onClick={() => setZoomIndex(null)}>
               Close
             </button>
-            <img className={styles.zoomImg} src={zoomUrl} alt="zoomed reference" />
+            <img className={styles.zoomImg} src={imageUrls[zoomIndex]} alt="zoomed reference" />
+            {imageUrls.length > 1 && (
+              <>
+                <button
+                  className={styles.prevBtn}
+                  onClick={(e) => { e.stopPropagation(); setZoomIndex((zoomIndex - 1 + imageUrls.length) % imageUrls.length); }}
+                  aria-label="Previous"
+                >
+                  ‹
+                </button>
+                <button
+                  className={styles.nextBtn}
+                  onClick={(e) => { e.stopPropagation(); setZoomIndex((zoomIndex + 1) % imageUrls.length); }}
+                  aria-label="Next"
+                >
+                  ›
+                </button>
+              </>
+            )}
           </>
         )}
       </div>

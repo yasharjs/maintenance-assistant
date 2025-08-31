@@ -12,18 +12,18 @@ export const appStateReducer = (state: AppState, action: Action): AppState => {
       return { ...state, currentChat: action.payload }
     case 'UPDATE_CHAT_HISTORY_LOADING_STATE':
       return { ...state, chatHistoryLoadingState: action.payload }
-    case 'UPDATE_CHAT_HISTORY':
-      if (!state.chatHistory || !state.currentChat) {
-        return state
-      }
-      const conversationIndex = state.chatHistory.findIndex(conv => conv.id === action.payload.id)
-      if (conversationIndex !== -1) {
-        const updatedChatHistory = [...state.chatHistory]
-        updatedChatHistory[conversationIndex] = action.payload
-        return { ...state, chatHistory: updatedChatHistory }
-      } else {
-        return { ...state, chatHistory: [...state.chatHistory, action.payload] }
-      }
+    case 'UPDATE_CHAT_HISTORY': {
+      // Always upsert the conversation and keep list ordered by most recent date
+      const existing = state.chatHistory ?? []
+      const others = existing.filter(conv => conv.id !== action.payload.id)
+      const merged = [action.payload, ...others]
+        .sort((a, b) => {
+          const da = new Date(a.date ?? 0).getTime()
+          const db = new Date(b.date ?? 0).getTime()
+          return db - da // newest first
+        })
+      return { ...state, chatHistory: merged }
+    }
     case 'UPDATE_CHAT_TITLE':
       if (!state.chatHistory) {
         return { ...state, chatHistory: [] }

@@ -56,6 +56,16 @@ const ChatInterface: React.FC<ChatInterfaceProps & {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [showJump, setShowJump] = useState(false);
   const [forceTyping, setForceTyping] = useState(false);
+  // Measure input area's height to avoid scroll button overlap
+  const inputWrapRef = useRef<HTMLDivElement>(null);
+  const [inputOffset, setInputOffset] = useState(144); // px; fallback ~ bottom-36
+  const measureInput = () => {
+    const el = inputWrapRef.current;
+    if (!el) return;
+    const h = el.getBoundingClientRect().height || 0;
+    // Keep a small gap so the button doesn't touch the input
+    setInputOffset(Math.max(96, Math.ceil(h) + 16));
+  };
  // Show indicator if: (normal rule) OR (debug forced)
   const deferredMessages = useDeferredValue(messages);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -69,11 +79,10 @@ const ChatInterface: React.FC<ChatInterfaceProps & {
     el.style.height = `${next}px`;
     el.style.overflowY = el.scrollHeight > next ? "auto" : "hidden";
 };
-// --- Title gating: show only after first assistant message finishes streaming
+// --- Title display: prefer a real chat title and avoid flicker during streaming
 const hasAssistantMsg = messages?.some(m => m.role === "assistant");
-const hasRealTitle =
-  Boolean(chatTitle?.trim()) && chatTitle !== "New Chat";
-const canShowTitle = hasAssistantMsg && !isLoading && hasRealTitle;
+const hasRealTitle = Boolean(chatTitle?.trim()) && chatTitle !== "New Chat";
+const displayTitle = hasRealTitle ? chatTitle : "Maintenance Agent";
 
 // Run once on mount and whenever input text changes
 useEffect(() => { autoResize(); }, []);
@@ -82,6 +91,15 @@ useEffect(() => { autoResize(); }, [input]);
 // (Optional) keep height correct on viewport resize (vh-based caps)
 useEffect(() => {
   const onResize = () => autoResize();
+  window.addEventListener("resize", onResize);
+  return () => window.removeEventListener("resize", onResize);
+}, []);
+
+// Initial measurement and recompute when input grows/shrinks or loading state changes
+useEffect(() => { measureInput(); }, []);
+useEffect(() => { requestAnimationFrame(measureInput); }, [input, isLoading]);
+useEffect(() => {
+  const onResize = () => measureInput();
   window.addEventListener("resize", onResize);
   return () => window.removeEventListener("resize", onResize);
 }, []);
@@ -268,7 +286,7 @@ const handleFeedback = async (messageId: string, type: 'up' | 'down') => {
   const showTypingIndicator = (isLoading && !lastIsAssistant) || forceTyping;
   
   return <div
-  className="flex-1 flex flex-col h-screen bg-chat-background transition-[padding-right] duration-200"
+    className="flex-1 flex flex-col h-screen bg-chat-background transition-[padding-right] duration-200"
   
 >
 
@@ -285,22 +303,22 @@ const handleFeedback = async (messageId: string, type: 'up' | 'down') => {
     </label>
   </div>
 )} */}
-    {/* Header */}
-    <div className="border-b border-chat-border p-4 bg-card/50 backdrop-blur-xl  z-10 ">
+    {/* Header (sticky, consistent height, behind rail) */}
+    <div className="sticky top-0 h-16 flex items-center border-b border-chat-border px-4 bg-card/50 backdrop-blur-xl z-[20] ">
       <div className="flex items-center w-full px-2 sm:px-4 relative">
-        {/* Sidebar Toggle Button */}
-        <Button
-          onClick={toggleSidebar}
-          className="h-10 w-10 rounded-full shadow-lg bg-[#343541] dark:bg-primary dark:hover:bg-primary/80 hover:bg-[#343541]/80"
-        >
-          <Menu className="h-5 w-5" />
-        </Button>
+        {/* Hide header toggle; use floating launcher instead */}
 
-        {/* Centered Title */}
-        {/* Centered Title */}
-        <h1 className="absolute left-1/2 transform -translate-x-1/2 text-xl font-semibold text-[#343541] dark:text-white truncate max-w-[60%] sm:max-w-[70%] text-center">
-          {canShowTitle ? chatTitle : "Maintenance Agent"}
-        </h1>
+<h1
+  className="absolute left-1/2 -translate-x-1/2 transform
+             font-semibold text-[#343541] dark:text-white
+             text-center leading-tight
+             max-w-[65%] sm:max-w-[70%]
+             whitespace-normal"
+  style={{ fontSize: "clamp(1.25rem, 4vw, 1.35rem)" }}
+>
+  {displayTitle}
+</h1>
+
         
         {/* Share Button on Right */}
         <div className="ml-auto flex items-center">
@@ -324,7 +342,7 @@ const handleFeedback = async (messageId: string, type: 'up' | 'down') => {
                 <div className={cn(
                   "w-full max-w-[95vw] sm:max-w-xl md:max-w-2xl lg:max-w-3xl mx-auto px-2 sm:px-4",              // NEW: centered column + even gutters
                   isCentered ? "" : "space-y-6"   ,
-                  "pb-28 sm:pb-32"              // tighter vertical rhythm like ChatGPT
+                  "pb-28 sm:pb-32"            
                 )}>
 
           {messages.length === 0 && isCentered ? <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-8 py-0 my-[0px]">
@@ -339,7 +357,7 @@ const handleFeedback = async (messageId: string, type: 'up' | 'down') => {
                   <Textarea
                     ref={textareaRef}
                     value={input}
-                    onChange={(e) => { setInput(e.target.value); requestAnimationFrame(autoResize); }}
+                    onChange={e => { setInput(e.target.value); requestAnimationFrame(autoResize); }}
                     onKeyDown={handleKeyDown}
                     placeholder="Ask anything."
                     className={cn(
@@ -453,10 +471,10 @@ const handleFeedback = async (messageId: string, type: 'up' | 'down') => {
       {!isLoading && showJump && (
       <div
         className={
-          // Centered overlay, above the input
-          // If your input area is taller/shorter, tweak the bottom offset.
-          "pointer-events-none fixed inset-x-0  bottom-36  z-[10] flex justify-center"
+          // Centered overlay, above the input. Bottom is computed from input height.
+          "pointer-events-none fixed inset-x-0 z-[10] flex justify-center"
         }
+        style={{ bottom: `calc(${inputOffset}px + env(safe-area-inset-bottom))` }}
       >
         <Button
           onClick={() => requestAnimationFrame(() => scrollToBottom("auto"))}
@@ -469,17 +487,17 @@ const handleFeedback = async (messageId: string, type: 'up' | 'down') => {
       </div>
     )}
       {/* Input Area - Only show when not centered or when there are messages */}
-      {!isCentered && <div className="border-t border-chat-border bg-card/50 backdrop-blur-xl px-4 py-4 ">
+      {!isCentered && <div ref={inputWrapRef} className="border-t border-chat-border bg-card/50 backdrop-blur-xl px-4 py-4 ">
           <div className="max-w-3xl mx-auto">
             <form onSubmit={handleSubmit} className="relative">
               <div className="relative group">
                 <Textarea
-  ref={textareaRef}
-  value={input}
-  onChange={(e) => { setInput(e.target.value); requestAnimationFrame(autoResize); }}
-  onKeyDown={handleKeyDown}
-  placeholder="Ask anything."
-  className={cn(
+                  ref={textareaRef}
+                  value={input}
+                  onChange={e => { setInput(e.target.value); requestAnimationFrame(autoResize); }}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Ask anything."
+                  className={cn(
     // Auto-grow baseline + responsive max height (taller cap on smaller screens)
     " min-h-[56px] sm:min-h-[64px] max-h-[50vh] sm:max-h-[45vh] md:max-h-[40vh] lg:max-h-[35vh]",
     "overflow-y-auto pr-14 resize-none transition-all duration-200",
@@ -488,7 +506,7 @@ const handleFeedback = async (messageId: string, type: 'up' | 'down') => {
     "rounded-2xl text-base leading-relaxed",
     "placeholder:text-muted-foreground/60"
   )}
-  disabled={isLoading}
+                  disabled={isLoading}
 />
                 <Button type="submit" size="icon" disabled={!input.trim() || isLoading} className={cn("absolute right-3 bottom-3 h-10 w-10 rounded-xl", "bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground transition-all duration-200", "hover:scale-105 active:scale-95", "disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100")}>
                   <Send className="w-4 h-4" />
@@ -510,4 +528,3 @@ const handleFeedback = async (messageId: string, type: 'up' | 'down') => {
     </div>;
 };
 export default ChatInterface;
-

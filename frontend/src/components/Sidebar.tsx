@@ -131,7 +131,7 @@ const formatTime = (date: Date) => {
         <SidebarGroup>
           <SidebarGroupContent>
             {!isCollapsed ? (
-              <ScrollArea className="flex-1 [&>[data-radix-scroll-area-viewport]]:bg-transparent [&>[data-radix-scroll-area-scrollbar]]:bg-sidebar-accent/20 [&>[data-radix-scroll-area-thumb]]:bg-sidebar-border hover:[&>[data-radix-scroll-area-thumb]]:bg-sidebar-foreground/30 [&>[data-radix-scroll-area-scrollbar]]:w-2 [&>[data-radix-scroll-area-scrollbar]]:border-0">
+              <ScrollArea className="flex-1">
                 <div className="p-2 w-full">
                   {filteredChats.length === 0 ? (
                     <div className="text-center py-8 text-sidebar-foreground/50">
@@ -216,14 +216,16 @@ const formatTime = (date: Date) => {
               </ScrollArea>
             ) : (
               <ScrollArea className="flex-1 p-2">
-                <div className="space-y-2">
-                  {chats.slice(0, 5).map(chat => (
+                <div className="flex flex-col items-center gap-2">
+                  {chats.map(chat => (
                     <Button
                       key={chat.id}
                       variant="ghost"
                       size="icon"
+                      title={chat.title}
+                      aria-label={chat.title}
                       className={cn(
-                        "w-12 h-12 mx-auto",
+                        "w-10 h-10",
                         activeChat === chat.id ? "bg-muted" : ""
                       )}
                       onClick={() => onSelectChat(chat.id)}
@@ -258,7 +260,7 @@ const formatTime = (date: Date) => {
               align="start"
               side="top"
               sideOffset={4}
-              className="w-48 bg-background border border-border shadow-lg z-50"
+              className="w-48 bg-background border border-border shadow-lg z-[90]"
             >
               <DropdownMenuItem
                 onClick={() => setTheme(theme === "light" ? "dark" : "light")}

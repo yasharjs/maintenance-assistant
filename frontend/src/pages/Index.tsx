@@ -15,7 +15,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 // eslint-disable-next-line simple-import-sort/imports
 import React, { useContext, useEffect, useMemo, useState } from "react";
-import { Menu } from "lucide-react";
+import { Clock, Menu, Plus, Search } from "lucide-react";
 import { v4 as uuid } from "uuid";
 import { conversationApi,
   frontendSettings,
@@ -29,7 +29,9 @@ import { ConversationRequest, ChatMessage, Conversation } from "../api/models";
 import ChatInterface from "../components/ChatInterface";
 import ShareDialog from "../components/ShareDialog";
 import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
 import { SidebarProvider, useSidebar } from "../components/ui/sidebar";
+import { ScrollArea } from "../components/ui/scroll-area";
 import { useToast } from "../hooks/use-toast";
 import { AppStateContext } from "../state/AppProvider";
 import { useTheme } from "../components/ThemeProvider";
@@ -95,6 +97,8 @@ const MainContent = () => {
   const [isOpen, setIsOpen] = useState(false); // Single state for sidebar
   const { toast } = useToast();
   const [scrollSignal, setScrollSignal] = useState(0);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchText, setSearchText] = useState("");
 
 
   useEffect(() => {
@@ -244,6 +248,25 @@ const mappedChats: Chat[] = (chats || []).map(conv => {
   };
 });
 
+  const filteredModalChats = useMemo(() => {
+    const q = searchText.trim().toLowerCase();
+    if (!q) return mappedChats.slice(0, 20);
+    return mappedChats
+      .filter(c => (c.title?.toLowerCase().includes(q) || c.lastMessage?.toLowerCase().includes(q)))
+      .slice(0, 20);
+  }, [searchText, mappedChats]);
+
+  // Pretty timestamp format like the sidebar
+  const formatTime = (date: Date) => {
+    const now = new Date();
+    let days = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
+    if (days < 0) days = 0;
+    if (days === 0) return "Today";
+    if (days === 1) return "Yesterday";
+    if (days <= 5) return `${days} days ago`;
+    return "7+ days ago";
+  };
+
 
 const getCurrentChat = () => {
 
@@ -368,6 +391,7 @@ const handleSelectChat = async (chatId: string) => {
         date: new Date().toISOString()
         
       };
+      // eslint-disable-next-line no-console
       console.log("date : ", conversation.date);
       request = { messages: [userMessage] };
     } else {
@@ -485,7 +509,12 @@ const handleSelectChat = async (chatId: string) => {
         conversation.date = finalResult.history_metadata.date;
       }
 
-     
+      // Ensure the conversation has a fresh date so it sorts to the top
+      try {
+        // Prefer backend-provided date if present; otherwise use now
+        conversation.date = (finalResult?.history_metadata?.date) || new Date().toISOString();
+      } catch {}
+
       appStateContext?.dispatch({ type: 'UPDATE_CURRENT_CHAT', payload: conversation });
       appStateContext?.dispatch({ type: 'UPDATE_CHAT_HISTORY', payload: conversation });
       conversation.messages = conversation.messages.map(m => {
@@ -543,11 +572,12 @@ const [isCollapsed, setIsCollapsed] = useState(false);
     <div className="h-screen bg-background flex w-full overflow-visible">
       {/* Sidebar Toggle Button */}
       
+      {/* Collapsed rail removed for now to avoid overlap issues */}
 
       {/* Sidebar Overlay + Panel (animated) */}
       <div
         className={`
-          fixed inset-0 z-[20] 
+          fixed inset-0 z-[70]
           ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}
           transition-opacity duration-300
         `}
@@ -557,18 +587,19 @@ const [isCollapsed, setIsCollapsed] = useState(false);
         <div
           className="fixed inset-0 z-[50] bg-black/50"
           onClick={() => setIsOpen(false)}
+          aria-hidden
         />
 
         {/* Sliding Panel */}
         <div
           className={`
-            fixed inset-y-0 left-0 z-[100]
-            w-80 bg-card shadow-xl
+            fixed inset-y-0 left-0 z-[80]
+            w-80 bg-card shadow-xl border-r border-sidebar-border
             transform transition-transform duration-300 
             ${isOpen ? 'translate-x-0' : '-translate-x-full'}
           `}
           style={{
-              visibility: isOpen ? 'visible' : 'hidden', // Ensure visibility toggles
+              visibility: isOpen ? 'visible' : 'hidden',
               maxWidth: '100vw',
             }}
         >
@@ -605,7 +636,7 @@ const [isCollapsed, setIsCollapsed] = useState(false);
             showCentered={!currentChat}
             isCollapsed={!isOpen}
             toggleSidebar={toggleSidebar} // Pass toggleSidebar function
-            isSidebarCollapsed={isOpen}  // Pass sidebar state
+            isSidebarCollapsed={!isOpen}  // Pass sidebar state (true when collapsed)
             scrollSignal={scrollSignal} 
           />
         </div>
@@ -620,6 +651,86 @@ const [isCollapsed, setIsCollapsed] = useState(false);
           mappedChats.find(c => c.id === shareDialogChatId)?.title || "Chat"
         }
       />
+      {/* Collapsed launcher (top-left) + thin rail opener */}
+      {!isOpen && (
+      <>
+        {/* Clickable thin rail along the left edge */}
+        <button
+        type="button"
+        aria-label="Open sidebar"
+        onClick={() => setIsOpen(true)}
+        className="fixed inset-y-0 left-0 z-[55] w-16 cursor-ew-resize group bg-chat-background"
+      >
+          {/* Draw the divider on the inner edge so it separates content clearly */}
+          <div className="h-full w-px ml-auto bg-sidebar-border group-hover:bg-foreground/40 transition-colors" />
+        </button>
+
+        {/* Floating quick actions at the top */}
+        <div className="fixed top-4 z-[60] flex flex-col gap-2"
+           style={{ left: "calc(4rem / 2 - 1.25rem)" }}>
+          <Button
+          variant="ghost"
+          size="icon"
+          title="New Chat"
+          aria-label="New Chat"
+          className="h-10 w-10 rounded-full bg-muted/30 dark:bg-zinc-800/50 hover:bg-muted/60 dark:hover:bg-zinc-700/70 backdrop-blur"
+          onClick={() => { handleNewChat(); setIsOpen(true); }}
+        >
+            <Plus className="w-4 h-4" />
+          </Button>
+          <Button
+          variant="ghost"
+          size="icon"
+          title="Search"
+          aria-label="Search"
+          className="h-10 w-10 rounded-full bg-muted/30 dark:bg-zinc-800/50 hover:bg-muted/60 dark:hover:bg-zinc-700/70 backdrop-blur"
+          onClick={() => {
+            setSearchText("");
+            setIsSearchOpen(true);
+          }}
+        >
+            <Search className="w-4 h-4" />
+          </Button>
+        </div>
+      </>
+    )}
+
+      {/* Centered Search Modal for collapsed state */}
+      {isSearchOpen && (
+      <div className="fixed inset-0 z-[90] flex items-center justify-center">
+        <div className="absolute inset-0 bg-black/50" onClick={() => setIsSearchOpen(false)} />
+        <div className="relative z-[95] w-[92vw] max-w-xl rounded-xl border border-sidebar-border bg-background shadow-2xl">
+          <div className="p-4 border-b border-sidebar-border">
+            <Input
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              placeholder="Search chats..."
+              className="h-10"
+            />
+          </div>
+          <ScrollArea className="max-h-[60vh] p-2">
+            {filteredModalChats.length === 0 ? (
+              <div className="p-6 text-center text-muted-foreground">No results</div>
+            ) : (
+              filteredModalChats.map(c => (
+                <button
+                  key={c.id}
+                  className="w-full text-left p-3 rounded-lg hover:bg-muted/50 transition-colors"
+                  onClick={() => { setIsSearchOpen(false); setIsOpen(true); handleSelectChat(c.id); }}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="font-medium truncate mr-2">{c.title}</div>
+                    <div className="text-xs text-muted-foreground whitespace-nowrap">{formatTime(c.timestamp)}</div>
+                  </div>
+                </button>
+              ))
+            )}
+          </ScrollArea>
+          <div className="p-3 text-center text-xs text-muted-foreground border-t border-sidebar-border">Press ESC to close</div>
+        </div>
+      </div>
+    )}
+
     </div>
   );
 };

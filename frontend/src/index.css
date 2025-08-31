@@ -61,6 +61,10 @@
     --sidebar-border: 220 13% 91%;
 
     --sidebar-ring: 217.2 91.2% 59.8%;
+
+    /* Scrollbar (light mode) */
+    --scrollbar-thumb: 0 0% 60%; /* thumb gray */
+    --scrollbar-track: 0 0% 90%; /* subtle track */
   }
 
   .dark {
@@ -107,6 +111,10 @@
     --sidebar-accent-foreground: 240 4.8% 95.9%;
     --sidebar-border: 240 3.7% 15.9%;
     --sidebar-ring: 217.2 91.2% 59.8%;
+
+    /* Scrollbar (dark mode) */
+    --scrollbar-thumb: 0 0% 36%; /* slightly lighter than bg */
+    --scrollbar-track: 0 0% 18%; /* close to bg */
   }
 }
 
@@ -158,3 +166,43 @@ body {
 
 
 }
+
+/* Hide native scrollbars inside Radix ScrollArea viewport and use overlay bars */
+[data-radix-scroll-area-viewport] {
+  scrollbar-width: none; /* Firefox */
+}
+
+[data-radix-scroll-area-scrollbar] {
+  width: 8px;
+  background: hsl(var(--scrollbar-track));
+}
+[data-radix-scroll-area-scrollbar-thumb] {
+  background: hsl(var(--scrollbar-thumb));
+  border-radius: 9999px;
+}
+
+/* ---------- Custom scrollbar styling (for native overflow elements like tables) ---------- */
+.custom-scrollbar {
+  scrollbar-width: thin; /* Firefox */
+  scrollbar-color: hsl(var(--scrollbar-thumb)) transparent;
+}
+.custom-scrollbar:hover {
+  scrollbar-color: hsl(var(--scrollbar-thumb)) transparent;
+}
+.custom-scrollbar::-webkit-scrollbar {
+  height: 6px; /* horizontal */
+  width: 6px;  /* vertical */
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent; /* invisible track */
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: hsl(var(--scrollbar-thumb) / 0.55);
+  border-radius: 9999px;
+  border: 2px solid transparent; /* padding around thumb */
+  background-clip: padding-box;
+}
+.custom-scrollbar:hover::-webkit-scrollbar-thumb {
+  background: hsl(var(--scrollbar-thumb) / 0.85);
+}
+

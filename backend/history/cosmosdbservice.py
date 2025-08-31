@@ -139,6 +139,13 @@ class CosmosConversationClient():
             'content': input_message['content']
         }
 
+        # Persist optional citations if present on the message payload
+        try:
+            if isinstance(input_message, dict) and 'citations' in input_message:
+                message['citations'] = input_message.get('citations')
+        except Exception:
+            pass
+
         if self.enable_message_feedback:
             message['feedback'] = ''
         
@@ -174,10 +181,10 @@ class CosmosConversationClient():
                 'value': user_id
             }
         ]
-        query = f"SELECT * FROM c WHERE c.conversationId = @conversationId AND c.type='message' AND c.userId = @userId ORDER BY c.timestamp ASC"
+        # Use createdAt ordering since timestamp field may not exist on records
+        query = f"SELECT * FROM c WHERE c.conversationId = @conversationId AND c.type='message' AND c.userId = @userId ORDER BY c.createdAt ASC"
         messages = []
         async for item in self.container_client.query_items(query=query, parameters=parameters):
             messages.append(item)
 
         return messages
-
