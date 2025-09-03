@@ -190,7 +190,7 @@ const formatTime = (date: Date) => {
                                 <MoreHorizontal className="w-4 h-4" />
                               </Button>
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-40">
+                            <DropdownMenuContent align="end" className="z-[200] w-40">
                               <DropdownMenuItem onClick={() => handleRename(chat.id, chat.title)} className="text-sm">
                                 <Edit3 className="w-4 h-4 mr-2" />
                                 Rename
