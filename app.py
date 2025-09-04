@@ -274,7 +274,7 @@ def reasoning_graph():
     return agent_builder.compile()
 
 AgentSmith = reasoning_graph()
-
+query_router_graph = build_graph()
 async def stream_chat_request(request_body, request_headers):
     """Stream the assistant response *and* let the final chunk carry citations.
 
@@ -295,7 +295,17 @@ async def stream_chat_request(request_body, request_headers):
     messages = request_body.get("messages", [])
     chat_history = convert_messages_to_chat_history(messages[-1:])
     initial_state: ReasoningInputState = {"reasoning_messages": chat_history, "tool_call_iterations": 0}
-    async for chunk in AgentSmith.astream(initial_state, stream_mode="custom"):
+    state = State(
+        messages=chat_history,  # last 7 messages only
+        route="",
+        rewritten="",
+        pages=[],
+        hits=[],
+        context=""
+    )
+    # async for chunk in AgentSmith.astream(initial_state, stream_mode="custom"):
+
+    async for chunk in query_router_graph.astream(state, stream_mode="custom"):
         # `chunk` is still your SimpleNamespace here
         event = format_stream_response(chunk, history_md, chunk.id)  # now pass ID correctly
         yield event
