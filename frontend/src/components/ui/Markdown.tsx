@@ -46,7 +46,7 @@ const CodeBlock: React.FC<{ language?: string; value: string }> = ({
 // ---------- Table primitives (light, compact) ----------
 const tableComponents = {
   table: ({ node, ...props }: any) => (
-    <div className="my-4 overflow-x-auto">
+    <div className="my-4 overflow-x-auto custom-scrollbar">
       <table className="w-full border-collapse text-sm" {...props} />
     </div>
   ),

@@ -9,7 +9,8 @@ const ScrollArea = React.forwardRef<
 >(({ className, children, ...props }, ref) => (
   <ScrollAreaPrimitive.Root
     ref={ref}
-    className={cn("relative overflow-hidden", className)}
+    // group class enables hover fade-in for scrollbars
+    className={cn("relative overflow-hidden group/sa", className)}
     {...props}
   >
     <ScrollAreaPrimitive.Viewport className="h-full w-full rounded-[inherit]">
@@ -29,16 +30,19 @@ const ScrollBar = React.forwardRef<
     ref={ref}
     orientation={orientation}
     className={cn(
-      "flex touch-none select-none transition-colors",
+      // Soft track that fades in on hover (VS Code/ChatGPT feel)
+      "flex touch-none select-none rounded-full transition-opacity duration-150 opacity-0 group-hover/sa:opacity-100 hover:opacity-100",
       orientation === "vertical" &&
-        "h-full w-2.5 border-l border-l-transparent p-[1px]",
+        "h-full w-2 p-[2px] bg-[hsl(var(--scrollbar-track)/0.35)]",
       orientation === "horizontal" &&
-        "h-2.5 flex-col border-t border-t-transparent p-[1px]",
+        "h-2 flex-col p-[2px] bg-[hsl(var(--scrollbar-track)/0.35)]",
       className
     )}
     {...props}
   >
-    <ScrollAreaPrimitive.ScrollAreaThumb className="relative flex-1 rounded-full bg-border" />
+    <ScrollAreaPrimitive.ScrollAreaThumb
+      className="relative flex-1 rounded-full bg-[hsl(var(--scrollbar-thumb)/0.7)] hover:bg-[hsl(var(--scrollbar-thumb)/0.9)] shadow-[inset_0_0_0_1px_rgba(0,0,0,0.06)]"
+    />
   </ScrollAreaPrimitive.ScrollAreaScrollbar>
 ));
 ScrollBar.displayName = ScrollAreaPrimitive.ScrollAreaScrollbar.displayName;
