@@ -517,17 +517,16 @@ const handleSelectChat = async (chatId: string) => {
 
       appStateContext?.dispatch({ type: 'UPDATE_CURRENT_CHAT', payload: conversation });
       appStateContext?.dispatch({ type: 'UPDATE_CHAT_HISTORY', payload: conversation });
-      conversation.messages = conversation.messages.map(m => {
-      if (m.role === ASSISTANT && Array.isArray((m as any).citations)) {
-        // Already has citations, keep as is
-        return m;
+      // Only attach citations to the current assistant message if missing.
+      // Avoid mutating older assistant messages which caused duplicate "References" buttons.
+      if (assistantMessageId && Array.isArray(latestCitations) && latestCitations.length > 0) {
+        conversation.messages = conversation.messages.map(m => {
+          if (m.id === assistantMessageId && m.role === ASSISTANT && !Array.isArray((m as any).citations)) {
+            return { ...m, citations: latestCitations };
+          }
+          return m;
+        });
       }
-      if (m.role === ASSISTANT && Array.isArray(latestCitations) && latestCitations.length > 0) {
-        // Attach latest citations if missing
-        return { ...m, citations: latestCitations };
-      }
-      return m;
-    });
       try {
         // Save to backend so messages persist
         await historyUpdate(conversation.messages, conversation.id);
@@ -670,15 +669,26 @@ const [isCollapsed, setIsCollapsed] = useState(false);
             className="hidden sm:flex fixed top-4 z-[60] flex-col gap-2"
             style={{ left: "calc(4rem / 2 - 1.25rem)" }}
           >
+            {/* Sidebar opener (hamburger) — opens the chat history without starting a new chat */}
+            <Button
+              variant="ghost"
+              size="icon"
+              title="Open Sidebar"
+              aria-label="Open Sidebar"
+              className="h-10 w-10 rounded-full bg-gray-200/80 hover:bg-gray-300 dark:bg-zinc-800/50 dark:hover:bg-zinc-700/70 border border-sidebar-border/40 shadow-sm backdrop-blur transition-colors"
+              onClick={() => setIsOpen(true)}
+            >
+              <Menu className="w-4 h-4" />
+            </Button>
             <Button
               variant="ghost"
               size="icon"
               title="New Chat"
               aria-label="New Chat"
-              className="h-10 w-10 rounded-full bg-muted/30 dark:bg-zinc-800/50 hover:bg-muted/60 dark:hover:bg-zinc-700/70 backdrop-blur"
+              className="h-10 w-10 rounded-full bg-gray-200/80 hover:bg-gray-300 dark:bg-zinc-800/50 dark:hover:bg-zinc-700/70 border border-sidebar-border/40 shadow-sm backdrop-blur transition-colors"
               onClick={() => {
+                // Start a new chat but keep the sidebar collapsed
                 handleNewChat();
-                setIsOpen(true);
               }}
             >
               <Plus className="w-4 h-4" />
@@ -688,7 +698,7 @@ const [isCollapsed, setIsCollapsed] = useState(false);
               size="icon"
               title="Search"
               aria-label="Search"
-              className="h-10 w-10 rounded-full bg-muted/30 dark:bg-zinc-800/50 hover:bg-muted/60 dark:hover:bg-zinc-700/70 backdrop-blur"
+              className="h-10 w-10 rounded-full bg-gray-200/80 hover:bg-gray-300 dark:bg-zinc-800/50 dark:hover:bg-zinc-700/70 border border-sidebar-border/40 shadow-sm backdrop-blur transition-colors"
               onClick={() => {
                 setSearchText("");
                 setIsSearchOpen(true);
