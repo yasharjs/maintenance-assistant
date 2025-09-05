@@ -273,8 +273,9 @@ def reasoning_graph():
 
     return agent_builder.compile()
 
-AgentSmith = reasoning_graph()
-query_router_graph = build_graph()
+AgentSmith = reasoning_graph()   #react agent
+query_router_graph = build_graph() #langgraph workflow
+
 async def stream_chat_request(request_body, request_headers):
     """Stream the assistant response *and* let the final chunk carry citations.
 
