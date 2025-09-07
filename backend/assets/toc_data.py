@@ -1,10 +1,8 @@
 toc="""
 | Pg# | Item / Revision | Description                           | Dwg / Revision |
 |-----|-----------------|---------------------------------------|----------------|
-|Electrical Assemblies                                                           |
 | 5   | 5488099/3       | RS485 ENCLOSURE                       | 5488099/3      |
 | 7   | 2399471/3       | Electrical E-Stop Hardware Grp        | 5726144/0      |
-|Hydraulic Section                                                               |
 | 9   | 2487799/1       | Split Flange Set                      | 2487767/0      |
 | 9   | 2487798/1       | Split Flange Set                      | 2487767/0      |
 | 9   | 2481966/2       | Split Flange Set                      | 2487767/0      |
@@ -18,7 +16,6 @@ toc="""
 | 26  | 2683677/3       | Directional Control Valve             | 3164733/0      |
 | 28  | 2577036/1       | Split Flange Set                      | 2487767/0      |
 | 30  | 5411714/0       | Booster Manifold Assembly             | 4847193/0      |
-|Hydraulic Serviceable Items                                                     |
 | 32  | 2601072/1       | Auto Accumulator Dump Valve           | 3213299/0      |
 | 34  | 2642077/1       | Active Valve Cover                    | 3176670/1      |
 | 36  | 3928979/0       | Cartridge Valve Cover                 | 3396410/0      |
@@ -36,18 +33,15 @@ toc="""
 | 56  | 3928985/0       | Cartridge Valve Cover                 | 3396410/0      |
 | 58  | 735571/0        | Active Cartridge Valve                | 3176670/1      |
 | 58  | 735572/0        | Active Cartridge Cover                | 3176670/1      |
-|Pneumatic Section                                                               |
 | 60  | 5987802/4       | Clamp Air Services Group              | 5987803/3      |
 | 64  | 5885819/1       | Air Filter Regulator Assembly         | 5994998/1      |
 | 66  | 5611895/2       | Moving Platen Oil Retrieval           | 5439899/1      |
 | 69  | 5403319/8       | Vacuum Transfer Services Group        | 5407799/4      |
-|Pneumatic Serviceable Items                                                     |
 | 74  | 5172445         | Air Valve, 3 Way Poppet 1.5"          |                |
 | 74  | 5172439         | Air Valve, 3 Way Poppet 1"            |                |
 | 74  | 746607/0        | Pneumatic Valve- Numatics             | 3465073/1      |
 | 76  | 5172453/1       | Air Valve, 3 Way Poppet 1.5"          |                |
 | 76  | 717457/1        | Air Valve                             | 3463436/0      |
-|Water Circuits                                                                  |
 | 78  | 5341339/4       | Final Base Water Group                | 5345879/2      |
 | 79  | 5342556/2       | Base Water Group                      | 5345879/2      |
 | 83  | 5390381/6       | Mold Cooling Group                    | 5551848/2      |
@@ -55,9 +49,7 @@ toc="""
 | 87  | 5466558/1       | No Mold Cooling Manual Valves         | 5734422/0      |
 | 90  | 5591582/0       | Baumuller Motor Cooling Assy          | 5640818/0      |
 | 92  | 5744951/1       | Robot Cabinet Cooling Group           | 4979677/0      |
-|Water Circuit Serviceable Item                                                  |
 | 94  | 2026444/0       | Valve                                 | 3406239/0      |
-|Safety Gates & Nameplates                                                       |
 | 96  | 3022670/2       | Nameplates, Clamp                     | 3022150/4      |
 | 98  | 6461769/0       | Nameplate Group NA                    | 4610404/2      |
 | 102 | 4147028/2       | HyPET Robot Cab NP-UL English         | 4610453/0      |
@@ -67,7 +59,6 @@ toc="""
 | 123 | 5358135/6       | Clamp End Gate Assembly               | 5391084/3      |
 | 130 | 5358141/4       | Robot End Gate Assembly               | 5383220/2      |
 | 138 | 5358182/1       | Door Rail Assy OS                     | 5268978/4      |
-|Gate Assemblies                                                                 |
 | 145 | 5367200/5       | Vacuum End Gate Assembly              | 5391239/2      |
 | 152 | 5398462/2       | Skirting Assembly                     | 5401392/1      |
 | 154 | 5499617/4       | Standard Gates Assy                   | 5272402/6      |
@@ -84,7 +75,6 @@ toc="""
 | 218 | 6262190/6       | Dehumidification Enclosure Ass        | 6214454/1      |
 | 221 | 6269702/2       | IMA Hood Door Assy                    | 6182736/5      |
 | 226 | 4018482/9       | HyPET-HPP Gate Safety Kit             | 4686812/2      |
-| Clamp Section                                                                  |
 | 228 | 2328775/2       | Drop Bar Assembly                     | 4570677/0      |
 | 230 | 2679128/2       | Ejector Booster HYPET300-500          | 2679128/2      |
 | 232 | 2747262/4       | Safety Drop Bar Group                 | 4944048/1      |
@@ -113,9 +103,7 @@ toc="""
 | 299 | 6582426/1       | Clamp Cylinder Oil Retrieval          | 5604821/0      |
 | 302 | 6663655/0       | Alarm Light Group                     | 6663698/0      |
 | 304 | 6687622/0       | Hose Kit-Final Hydraulic HP300        | 5652886/0      |
-| Clamp Serviceable Items                                                        |
 | 308 | 746606/1        | Drop Bar Cylinder                     | 3364074/1      |
-| Clamp Base Section                                                             |
 | 310 | 5466789/3       | Clamp Base Sub-Assy                   | 5566015/2      |
 | 310 | 5466785/4       | Clamp Base Group                      | 5566015/2      |
 | 315 | 5871623/0       | Interface Hoses 300HPP E85            | 5871690/0      |

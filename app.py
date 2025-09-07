@@ -264,6 +264,7 @@ def reasoning_graph():
         {
             "tool_node": "tool_node", # Continue research loop
             "output_node": "output_node", # Provide final answer
+            "llm_call": "llm_call" 
         },
     )
     agent_builder.add_edge("tool_node", "llm_call") # Loop back for more research
