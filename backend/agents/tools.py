@@ -4,6 +4,8 @@ from langchain_core.documents import Document
 from backend.client import get_vectorstore
 from backend.state import ReasoningInputState
 import cohere
+import os
+import logging
 
 
 def _retrieve_from_vectorstore(
@@ -40,12 +42,19 @@ def _rerank_with_cohere(
     cutoff_ratio: float = 0.40,
     model: str = "rerank-english-v3.0",
 ) -> List[Dict[str, Any]]:
-    """Add rerank scores to views and keep those above cutoff."""
+    """Add rerank scores to views and keep those above cutoff.
+
+    If COHERE_API_KEY is not set, fall back to a simple top-N slice with no rerank.
+    """
     if not views:
         return []
 
-    COHERE_API_KEY = "zOxAfT9v1nO8fk2yFWqcl1TQQcbwnWqDtsVPs6x3"
-    co = cohere.Client(api_key=COHERE_API_KEY)
+    api_key = os.environ.get("COHERE_API_KEY")
+    if not api_key:
+        logging.getLogger("tools").warning("COHERE_API_KEY not set; returning top-N without rerank")
+        return views[: min(top_n, len(views))]
+
+    co = cohere.Client(api_key=api_key)
 
     corpus = [v["page_content"] for v in views]
     resp = co.rerank(
@@ -130,26 +139,6 @@ def retrieve_and_rerank(
 
 
 
-# ===== ROUTING LOGIC =====
-
-def should_continue(state: ReasoningInputState) -> Literal["tool_node", "output_node"]:
-    """Determine whether to continue research or provide final answer.
-    
-    Determines whether the agent should continue the research loop or provide
-    a final answer based on whether the LLM made tool calls.
-    
-    Returns:
-        "tool_node": Continue to tool execution
-        "compress_research": Stop and compress research
-    """
-    messages = state["reasoning_messages"]
-    last_message = messages[-1]
-    
-    # If the LLM makes a tool call, continue to tool execution
-    if last_message.tool_calls:
-        return "tool_node"
-    # Otherwise, we have a final answer
-    return "output_node"
 
 @tool(parse_docstring=True)
 def think_tool(reflection: str) -> str:

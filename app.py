@@ -249,7 +249,7 @@ def build_graph():
 
 def reasoning_graph():
     # Build the agent workflow
-    agent_builder = StateGraph(ReasoningInputState, output_schema=ReasoningOutputState)
+    agent_builder = StateGraph(ReasoningInputState)
 
     # Add nodes to the graph
     agent_builder.add_node("llm_call", llm_call)
@@ -295,17 +295,9 @@ async def stream_chat_request(request_body, request_headers):
 
     # convert messages from request body to chathistory for langchain
     messages = request_body.get("messages", [])
-    chat_history = convert_messages_to_chat_history(messages[-1:])
+    chat_history = convert_messages_to_chat_history(messages)
     initial_state: ReasoningInputState = {"reasoning_messages": chat_history, "tool_call_iterations": 0}
-    state = State(
-        messages=chat_history,  # last 7 messages only
-        route="",
-        rewritten="",
-        pages=[],
-        hits=[],
-        context=""
-    )
-    
+
     async for chunk in AgentSmith.astream(initial_state, stream_mode="custom"):
 
     #async for chunk in query_router_graph.astream(state, stream_mode="custom"):
@@ -836,5 +828,4 @@ async def run_agent_on_conversation(conversation_messages) -> str:
     return result.content.strip()
 
 app = create_app()
-
 
