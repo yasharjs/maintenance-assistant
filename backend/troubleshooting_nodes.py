@@ -9,7 +9,7 @@ import cohere
 
 
 llm = get_llm()
-embedding_llm = get_embedding_llm()
+# embedding_llm = get_embedding_llm()
 
 class RouteResponse(BaseModel):
     rewritten: str = Field(..., description="The rewritten user question that is clear and self-contained.")

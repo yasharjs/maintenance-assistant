@@ -264,6 +264,7 @@ def reasoning_graph():
         {
             "tool_node": "tool_node", # Continue research loop
             "output_node": "output_node", # Provide final answer
+            "llm_call": "llm_call" 
         },
     )
     agent_builder.add_edge("tool_node", "llm_call") # Loop back for more research
@@ -304,9 +305,10 @@ async def stream_chat_request(request_body, request_headers):
         hits=[],
         context=""
     )
-    # async for chunk in AgentSmith.astream(initial_state, stream_mode="custom"):
+    
+    async for chunk in AgentSmith.astream(initial_state, stream_mode="custom"):
 
-    async for chunk in query_router_graph.astream(state, stream_mode="custom"):
+    #async for chunk in query_router_graph.astream(state, stream_mode="custom"):
         # `chunk` is still your SimpleNamespace here
         event = format_stream_response(chunk, history_md, chunk.id)  # now pass ID correctly
         yield event

@@ -1,15 +1,15 @@
-from typing import Literal
+from typing import Literal, Any, Dict, List, Union
 from backend.state import ReasoningInputState
 from backend.client import get_llm
 from backend.agents.tools import think_tool, retrieve_and_rerank
-from backend.agents.mech_drawing_tool import page_locator
-from langchain_core.messages import SystemMessage, BaseMessage, ToolMessage
+from backend.agents.mech_drawing_tool import page_locator, drawing_image_links
+from langchain_core.messages import SystemMessage, ToolMessage, AIMessage, BaseMessage, HumanMessage
 from backend.agents.agent_prompt import reasoning_agent_prompt
 from langgraph.types import StreamWriter 
 from types import SimpleNamespace
 import uuid, time
 from pprint import pformat
-import cohere
+import json
 
 llm = get_llm()
 # ===== AGENT NODES =====
@@ -20,7 +20,7 @@ import logging
 logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger("reasoning")
 
-tools = [think_tool, retrieve_and_rerank, page_locator]
+tools = [think_tool, retrieve_and_rerank, page_locator, drawing_image_links]
 tools_by_name = {tool.name: tool for tool in tools}
 model_with_tools = llm.bind_tools(tools)
 
@@ -53,9 +53,22 @@ def tool_node(state: ReasoningInputState):
     observations = []
     for tool_call in tool_calls:
         tool = tools_by_name[tool_call["name"]]
-        observations.append(tool.invoke(tool_call["args"]))
+        obs = tool.invoke(tool_call["args"])
+        observations.append(obs)
+        citations = []
         log.debug("[TOOL] calling %s with args:\n%s", tool_call["name"], pformat(tool_call["args"]))
 
+        if tool_call["name"] == "drawing_image_links":
+            try:
+                payload = json.loads(obs)
+                for pages in payload.get("results", []):
+                    page = pages.get("page")
+                    url = pages.get("image_url")
+                    if url and page is not None:
+                        citations.append({"title": f"Page {page}", "url": url})
+            except Exception:
+                pass
+    
     # Create tool message outputs
     tool_outputs = [
         ToolMessage(
@@ -64,13 +77,23 @@ def tool_node(state: ReasoningInputState):
             tool_call_id=tool_call["id"]
         ) for observation, tool_call in zip(observations, tool_calls)
     ]
-    print("OBS", tool_outputs)
-    return {"reasoning_messages": tool_outputs}
+
+    # 2) If any tool was drawing_image_links, also append a HumanMessage with image parts
+    extra_messages: list[BaseMessage] = []
+    if any(tc["name"] == "drawing_image_links" for tc in tool_calls):
+        for obs, tc in zip(observations, tool_calls):
+            if tc["name"] == "drawing_image_links":
+                extra_messages.append(_human_images_from_tool_observation(obs))
+    # Merge with any citations already in state for this turn
+    prev = state.get("citations") or []
+    new_citations = prev + citations
+
+    return {"reasoning_messages": tool_outputs + extra_messages, "citations": new_citations}
 
 
 # ===== ROUTING LOGIC =====
 
-def should_continue(state: ReasoningInputState) -> Literal["tool_node", "output_node"]:
+def should_continue(state: ReasoningInputState) -> Literal["tool_node", "output_node", "llm_call"]:
     """Determine whether to continue research or provide final answer.
     
     Determines whether the agent should continue the research loop or provide
@@ -80,15 +103,14 @@ def should_continue(state: ReasoningInputState) -> Literal["tool_node", "output_
         "tool_node": Continue to tool execution
         "output_node": Stop and provide final answer
     """
-    messages = state["reasoning_messages"]
-    last_message = messages[-1]
-    
-    # If the LLM makes a tool call, continue to tool execution
-    if last_message.tool_calls:
-        log.debug("[ROUTER] decision: %s", "tool_node")
+    last = state["reasoning_messages"][-1]
+    if isinstance(last, AIMessage) and getattr(last, "tool_calls", None):
+        log.debug("[ROUTER] decision: tool_node")
         return "tool_node"
-    # Otherwise, we have a final answer
-    log.debug("[ROUTER] decision: %s", "output_node")
+    if isinstance(last, ToolMessage):
+        log.debug("[ROUTER] decision: llm_call")
+        return "llm_call"
+    log.debug("[ROUTER] decision: output_node")
     return "output_node"
 
 
@@ -115,3 +137,39 @@ def output_node(state: ReasoningInputState, writer: StreamWriter):
         )]
     ))
 
+    if state.get("citations"):
+        citations = state["citations"]
+        # ---------- final envelope with citations --------------------------------
+        writer(SimpleNamespace(
+            id      = str(uuid.uuid4()),
+            object  = "chat.completion.chunk",
+            model   = "gpt-4o",
+            created = int(time.time()),
+            choices = [
+                SimpleNamespace(
+                    index = 0,
+                    delta = SimpleNamespace(
+                        role       = "assistant",
+                        content    = " ",
+                        citations  = citations,
+                        tool_calls = None
+                    )
+                )
+            ],
+            citations = citations
+        ))  
+
+ContentPart = Union[str, Dict[str, Any]]
+def _human_images_from_tool_observation(observation: str) -> HumanMessage:
+    data = json.loads(observation)
+    parts: List[ContentPart] = []
+    for r in data.get("results", []):
+        url = r.get("image_url")
+        page = r.get("page")
+        if url:
+            parts.append({"type": "text", "text": f"Page {page} image:"})
+            parts.append({"type": "image_url", "image_url": {"url": url}})
+    # If no images, still return a text hint (harmless)
+    if not parts:
+        parts = [{"type": "text", "text": "No images returned by drawing_image_links."}]
+    return HumanMessage(content=parts)

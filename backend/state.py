@@ -14,6 +14,7 @@ class State(TypedDict):
     pages: List[int]
     hits: Optional[list]
     context: Optional[str]
+    citations: Optional[List[dict]]
 
 
 class AgentState(TypedDict):
@@ -23,7 +24,8 @@ class AgentState(TypedDict):
 class ReasoningInputState(TypedDict):
     reasoning_messages: Annotated[List[BaseMessage], add_messages]
     tool_call_iterations: int
+    citations: Optional[List[dict]]
 
 class ReasoningOutputState(TypedDict):
     final_answer: str
-    citations: List[str]
+    citations: Optional[List[dict]]
