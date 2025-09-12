@@ -1,3 +1,4 @@
+import asyncio
 from typing import Literal, Any, Dict, List, Union
 from backend.state import ReasoningInputState
 from backend.client import get_llm
@@ -13,7 +14,7 @@ import json
 import os
 import logging
 from backend.settings import app_settings
-
+logger = logging.getLogger(__name__)
 llm = get_llm()
 # ===== AGENT NODES =====
 
@@ -153,46 +154,67 @@ async def output_node(state: ReasoningInputState, writer: StreamWriter):
     """
     Grab the last (assistant) message, stream it in custom chunks.
     """
-    messages = state["reasoning_messages"]
-    last_message = messages[-1]
-    log.debug("[FINAL ANSWER]\n%s", last_message.content)
-    writer(SimpleNamespace(
-        id=str(uuid.uuid4()),
-        object="chat.completion.chunk",
-        model=app_settings.azure_openai_credentials.model,
-        created=int(time.time()),
-        choices=[SimpleNamespace(
-            index=0,
-            delta=SimpleNamespace(
-                role="assistant",
-                content=last_message.content,
-                citations=[],
-                tool_calls=None
-            )
-        )]
-    ))
 
-    if state.get("citations"):
-        citations = state["citations"]
-        # ---------- final envelope with citations --------------------------------
-        writer(SimpleNamespace(
-            id      = str(uuid.uuid4()),
-            object  = "chat.completion.chunk",
-            model   = app_settings.azure_openai_credentials.model,
-            created = int(time.time()),
-            choices = [
-                SimpleNamespace(
-                    index = 0,
-                    delta = SimpleNamespace(
-                        role       = "assistant",
-                        content    = " ",
-                        citations  = citations,
-                        tool_calls = None
+    
+    messages = state["reasoning_messages"]
+    answer = messages[-1].content
+    try:
+        # 1. Read configuration (with defaults)
+        initial_delay   = float(os.getenv("STREAM_INITIAL_DELAY",   "2.0"))
+        chunk_size      = int(  os.getenv("STREAM_CHUNK_SIZE",      "50"))
+        chunk_interval  = float(os.getenv("STREAM_CHUNK_INTERVAL",  "0.1"))
+
+        # 3. Split into chunks
+        chunks = [answer[i : i + chunk_size]
+                  for i in range(0, len(answer), chunk_size)]
+        logger.debug(f"Answer split into {len(chunks)} chunks of ~{chunk_size} chars")
+   
+        
+        log.debug("[FINAL ANSWER]\n%s", answer)
+        for idx,text in enumerate(chunks):
+            writer(SimpleNamespace(
+                id=str(uuid.uuid4()),
+                object="chat.completion.chunk",
+                model=app_settings.azure_openai_credentials.model,
+                created=int(time.time()),
+                choices=[SimpleNamespace(
+                    index=0,
+                    delta=SimpleNamespace(
+                        role="assistant",
+                        content=text,
+                        citations=[],
+                        tool_calls=None
                     )
-                )
-            ],
-            citations = citations
-        ))  
+                )]
+            ))                    # send chunk
+            await asyncio.sleep(chunk_interval) # slow down :contentReference[oaicite:3]{index=3}
+        if state.get("citations"):
+            citations = state["citations"]
+            # ---------- final envelope with citations --------------------------------
+            writer(SimpleNamespace(
+                id      = str(uuid.uuid4()),
+                object  = "chat.completion.chunk",
+                model   = app_settings.azure_openai_credentials.model,
+                created = int(time.time()),
+                choices = [
+                    SimpleNamespace(
+                        index = 0,
+                        delta = SimpleNamespace(
+                            role       = "assistant",
+                            content    = " ",
+                            citations  = citations,
+                            tool_calls = None
+                        )
+                    )
+                ],
+                citations = citations
+            ))  
+        logger.info("Finished streaming answer")
+    except Exception:
+        # Catch **all** exceptions to avoid killing the graph
+        logger.exception("Error in troubleshooting_streamer; aborting stream")  # :contentReference[oaicite:4]{index=4}
+
+    
 
 ContentPart = Union[str, Dict[str, Any]]
 def _human_images_from_tool_observation(observation: str) -> HumanMessage:
