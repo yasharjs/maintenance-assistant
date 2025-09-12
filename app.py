@@ -23,6 +23,7 @@ from backend.history.cosmosdbservice import CosmosConversationClient
 from backend.settings import (
     app_settings,
 )
+from backend.observability import enable_langsmith
 from backend.utils import (
     format_as_ndjson,
     format_stream_response
@@ -43,6 +44,13 @@ from langchain.schema import HumanMessage, AIMessage
 import os
 from backend.client import get_llm
 from backend.agents.langgraph_agents import llm_call, should_continue, tool_node, output_node
+
+# Enable LangSmith tracing early (before building LLMs/graphs)
+try:
+    enable_langsmith(app_settings.langsmith, default_project="react-agent-v1")
+except Exception:
+    # Do not block app startup on observability
+    logging.exception("LangSmith enable failed")
 
 llm = get_llm()
 
@@ -296,7 +304,7 @@ async def stream_chat_request(request_body, request_headers):
     # convert messages from request body to chathistory for langchain
     messages = request_body.get("messages", [])
     chat_history = convert_messages_to_chat_history(messages)
-    initial_state: ReasoningInputState = {"reasoning_messages": chat_history, "tool_call_iterations": 0}
+    initial_state: ReasoningInputState = {"reasoning_messages": chat_history, "tool_call_iterations": 0} # type: ignore
 
     async for chunk in AgentSmith.astream(initial_state, stream_mode="custom"):
 
@@ -828,4 +836,3 @@ async def run_agent_on_conversation(conversation_messages) -> str:
     return result.content.strip()
 
 app = create_app()
-

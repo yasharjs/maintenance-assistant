@@ -25,7 +25,6 @@ def _retrieve_from_vectorstore(
         for i, d in enumerate(docs)
     ]
 
-
 def _doc_to_view(doc: Document, idx: int) -> Dict[str, Any]:
     """Make a display-friendly view of a Document."""
     return {
@@ -33,7 +32,6 @@ def _doc_to_view(doc: Document, idx: int) -> Dict[str, Any]:
         "page": doc.metadata.get("page", None),
         "page_content": doc.page_content
     }
-
 
 def _rerank_with_cohere(
     query: str,
@@ -49,11 +47,11 @@ def _rerank_with_cohere(
     if not views:
         return []
 
-    api_key = os.environ.get("COHERE_API_KEY")
-    if not api_key:
-        logging.getLogger("tools").warning("COHERE_API_KEY not set; returning top-N without rerank")
-        return views[: min(top_n, len(views))]
-
+    # api_key = os.environ.get("COHERE_API_KEY")
+    # if not api_key:
+    #     logging.getLogger("tools").warning("COHERE_API_KEY not set; returning top-N without rerank")
+    #     return views[: min(top_n, len(views))]
+    api_key= "zOxAfT9v1nO8fk2yFWqcl1TQQcbwnWqDtsVPs6x3"
     co = cohere.Client(api_key=api_key)
 
     corpus = [v["page_content"] for v in views]
@@ -136,9 +134,6 @@ def retrieve_and_rerank(
     output_pages = format_pages_output(kept)
 
     return output_pages + "\n\n"
-
-
-
 
 @tool(parse_docstring=True)
 def think_tool(reflection: str) -> str:

@@ -69,7 +69,13 @@ def tool_node(state: ReasoningInputState):
         tool = tools_by_name[name]
         log.debug("[TOOL] calling %s with args:\n%s", name, pformat(args))
         try:
-            obs = tool.invoke(args)
+            obs = tool.invoke(
+                args,
+                config={
+                    "run_name": f"tool.{name}",
+                    "tags": ["agent", "tool", name],
+                },
+            )
         except Exception as e:
             log.exception("Tool %s failed", name)
             obs = f"ERROR: {type(e).__name__}: {e}"
@@ -143,7 +149,7 @@ def should_continue(state: ReasoningInputState) -> Literal["tool_node", "output_
     return "output_node"
 
 
-def output_node(state: ReasoningInputState, writer: StreamWriter):
+async def output_node(state: ReasoningInputState, writer: StreamWriter):
     """
     Grab the last (assistant) message, stream it in custom chunks.
     """
