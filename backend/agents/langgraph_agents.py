@@ -2,7 +2,7 @@ import asyncio
 from typing import Literal, Any, Dict, List, Union
 from backend.state import ReasoningInputState
 from backend.client import get_llm
-from backend.agents.tools import think_tool, retrieve_and_rerank
+from backend.agents.tools import think_tool, retrieve_and_rerank, write_todos, read_todos
 from backend.agents.mech_drawing_tool import page_locator, drawing_image_links
 from langchain_core.messages import SystemMessage, ToolMessage, AIMessage, BaseMessage, HumanMessage
 from backend.agents.agent_prompt import reasoning_agent_prompt
@@ -20,7 +20,7 @@ llm = get_llm()
 
 log = logging.getLogger("reasoning")
 
-tools = [think_tool, retrieve_and_rerank, page_locator, drawing_image_links]
+tools = [think_tool, retrieve_and_rerank, page_locator, drawing_image_links, write_todos, read_todos]
 tools_by_name = {tool.name: tool for tool in tools}
 model_with_tools = llm.bind_tools(tools)
 

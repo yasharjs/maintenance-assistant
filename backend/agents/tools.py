@@ -2,7 +2,7 @@ from langchain_core.tools import tool, InjectedToolArg
 from typing import Annotated, Literal, List, Dict, Any
 from langchain_core.documents import Document
 from backend.client import get_vectorstore
-from backend.state import ReasoningInputState
+from backend.state import ReasoningInputState, Todo
 import cohere
 import os
 import logging
@@ -161,3 +161,13 @@ def think_tool(reflection: str) -> str:
         str: Confirmation that reflection was recorded for decision-making
     """
     return f"Reflection recorded: {reflection}"
+
+@tool
+def write_todos(todos: List[Todo]) -> str:
+    """Overwrite the current TODO list with the given items."""
+    return f"Wrote {len(todos)} todo(s)."
+
+@tool
+def read_todos() -> str:
+    """Read the current TODO list."""
+    return "Reading todos."
