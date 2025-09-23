@@ -1,13 +1,19 @@
-from typing import TypedDict, Annotated, Optional
-from langgraph.graph.message import add_messages
-from pydantic import BaseModel, Field
-from langchain_core.messages import SystemMessage
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.messages import HumanMessage
-from langgraph.types import StreamWriter 
+import asyncio
+import logging
+import os
+import time
+import uuid
 from types import SimpleNamespace
-import uuid, time , os, logging, asyncio
-from backend.client import get_llm , get_vectorstore
+from typing import Annotated, Optional, TypedDict
+
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.prompts import ChatPromptTemplate
+from langgraph.graph.message import add_messages
+from langgraph.types import StreamWriter
+from pydantic import BaseModel, Field
+
+from backend.client import get_llm, get_vectorstore
+
 llm = get_llm()
 logger = logging.getLogger(__name__)
 
@@ -22,8 +28,8 @@ class State(TypedDict):
     final_answer: str
     feedback: Optional[str]
     approved: Optional[bool]
-    retry_count : int
-    feedback_memory: Optional[list[str]]   # ✅ new field
+    retry_count: int
+    feedback_memory: Optional[list[str]]  # Track evaluator feedback across retries
     score: Optional[float]  
     stream_chunk: Optional[str]  # For streaming responses
 
@@ -35,17 +41,17 @@ class EvaluationResult(BaseModel):
 
 QUERY_REWRITER_SYSTEM_MSG_PREFIX = (
     "**ROLE**: You are a domain-aware, high-precision query rewriter.\n\n"
-    "**GOAL**: Rewrite the user’s CURRENT_QUESTION into a standalone, keyword-optimized query (≤25 words).\n"
+    "**GOAL**: Rewrite the user's CURRENT_QUESTION into a standalone, keyword-optimized query (<=25 words).\n"
     "Preserve technical intent. Optimize for dense retrieval.\n\n"
     "**USE CONTEXT**:\n"
     "- Use technical terms from CURRENT_QUESTION exactly as written.\n"
-    "- Fill in missing context using RECENT_HISTORY — no guessing.\n\n"
+    "- Fill in missing context using RECENT_HISTORY - no guessing.\n\n"
     "**STRICT RULES**:\n"
-    "• Output a single line. No explanations.\n"
-    "• No quotes, punctuation, symbols, markdown, or rephrasing of keywords.\n"
-    "• Do not exceed 25 words.\n"
-    "• Resolve co-references (e.g., 'it', 'this') using RECENT_HISTORY.\n"
-    "• Only add terms if they are clear technical synonyms or style cues from RECENT_HISTORY.\n\n"
+    "- Output a single line. No explanations.\n"
+    "- No quotes, punctuation, symbols, markdown, or rephrasing of keywords.\n"
+    "- Do not exceed 25 words.\n"
+    "- Resolve co-references (e.g., 'it', 'this') using RECENT_HISTORY.\n"
+    "- Only add terms if they are clear technical synonyms or style cues from RECENT_HISTORY.\n\n"
     "RECENT_HISTORY:\n"
 )
 # --- Node: Rewrite the user query for troubleshooting route ---
@@ -56,10 +62,10 @@ async def troubleshooting_rewriter(state: State) -> dict:
     # Else, continue with rewrite
     system_msg = SystemMessage(
         content=QUERY_REWRITER_SYSTEM_MSG_PREFIX + str(RECENT_HISTORY) + 
-        "\n\n[CRITICAL INSTRUCTION]: If the user’s CURRENT_QUESTION is already clear, standalone, and well-formed (≥5 words, with a fault, alarm, or procedure), then return it exactly as-is — do NOT rewrite it."
+        "\n\n[CRITICAL INSTRUCTION]: If the user's CURRENT_QUESTION is already clear, standalone, and well-formed (>=5 words, with a fault, alarm, or procedure), then return it exactly as-is - do NOT rewrite it."
     )
     result = llm.invoke([system_msg, {"role": "user", "content": "CURRENT_QUESTION: " + CURRENT_QUESTION}])
-    print(f"Rewritten query: {result.content.strip()}")
+    logger.debug("Rewritten query: %s", result.content.strip())
     return {"rewritten": result.content.strip()}
 
 async def retrieve_node(state: State) -> State:
@@ -92,25 +98,25 @@ async def context_window_node(state: State) -> State:
     """
 
     FORMATTING_RULES = """
-    • Do NOT paraphrase technical values (voltages, jumpers). Repeat exactly.
-    • Format numerical data using GitHub-Flavored Markdown tables (pipes `|`, dashes `-`).
-    • Use numbered lists for procedures. Avoid bullets or code blocks.
+    - Do NOT paraphrase technical values (voltages, jumpers). Repeat exactly.
+    - Format numerical data using GitHub-Flavored Markdown tables (pipes `|`, dashes `-`).
+    - Use numbered lists for procedures. Avoid bullets or code blocks.
     """
 
     SAFETY_AND_TOOLS = """
-    • Mention tools (e.g., breakout box, multimeter) and include safety warnings.
-    • Include critical checks: jumper settings, spool centering, signal verification, swashplate calibration.
+    - Mention tools (e.g., breakout box, multimeter) and include safety warnings.
+    - Include critical checks: jumper settings, spool centering, signal verification, swashplate calibration.
     """
 
     INTERACTIVITY_RULES = """
-    • Always end responses with one helpful, clarifying question.
-    • If the question is vague, ask for clarification — don't assume.
-    • Use a professional tone that encourages technician confidence.
+    - Always end responses with one helpful, clarifying question.
+    - If the question is vague, ask for clarification - don't assume.
+    - Use a professional tone that encourages technician confidence.
     """
 
     MISSING_INFO_BEHAVIOR = """
-    • Clearly state if relevant data is NOT found in the documents.
-    • Do NOT guess or invent missing steps or values.
+    - Clearly state if relevant data is NOT found in the documents.
+    - Do NOT guess or invent missing steps or values.
 
     """
 
@@ -169,13 +175,11 @@ async def troubleshooting_final(state: State):
             chunks.append(chunk.content)
             
     final_response = "".join(chunks)
-    
-    print(f"Final response generated: {final_response.strip()}")
-    print(f"[Retry #{state.get('retry_count', 0)+1}]")
-    print(f"Current Score: {state.get('score')}")
-    print("Feedback Memory:")
-    for fb in (state.get("feedback_memory") or []):
-        print(f" - {fb}")
+
+    logger.debug("Final response generated (first 200 chars): %s", final_response.strip()[:200])
+    logger.debug("Retry #%s | Current score: %s", state.get("retry_count", 0) + 1, state.get("score"))
+    if feedback_history := state.get("feedback_memory"):
+        logger.debug("Feedback memory: %s", "; ".join(feedback_history))
     return {
         **state,
         "final_answer": final_response,
@@ -212,11 +216,11 @@ def troubleshooting_evaluator(state: State) -> dict:
     # Run structured evaluation prompt
     prompt = SystemMessage(content=(
         "You are a senior technical evaluator for a Maintenance AI Assistant.\n"
-        "Evaluate the assistant’s final answer according to the following criteria and return a score (0 to 1), approval flag, and brief feedback.\n\n"
+        "Evaluate the assistant's final answer according to the following criteria and return a score (0 to 1), approval flag, and brief feedback.\n\n"
         "**Scoring Guidelines:**\n"
         "- 1.0: Perfect. All rules followed.\n"
         "- 0.8+: Acceptable minor issues (formatting, brevity).\n"
-        "- 0.6–0.79: Major issues in clarity, formatting, or coverage.\n"
+        "- 0.6-0.79: Major issues in clarity, formatting, or coverage.\n"
         "- < 0.6: Unsafe, confusing, or incomplete.\n\n"
         "**Criteria:**\n"
         "1. Diagnostic steps accurate and logical\n"
@@ -241,7 +245,7 @@ def troubleshooting_evaluator(state: State) -> dict:
 
     approved = result.approved or result.score >= 0.8
     feedback_memory = (state.get("feedback_memory") or []) + [result.feedback]
-    print(f"Evaluation result: {result}")
+    logger.debug("Evaluation result: %s", result)
     return {
         "approved": approved,
         "feedback": result.feedback,

@@ -1,14 +1,20 @@
-from pydantic import Field, BaseModel
-from langgraph.types import StreamWriter 
-from backend.state import State
-from langchain.schema import SystemMessage, HumanMessage
-from backend.client import get_llm, get_embedding_llm, get_vectorstore
+import logging
+import os
+import time
+import uuid
 from types import SimpleNamespace
-import uuid, time
+
 import cohere
+from langchain.schema import HumanMessage, SystemMessage
+from langgraph.types import StreamWriter
+
+from backend.client import get_llm, get_embedding_llm, get_vectorstore
+from backend.state import State
+from pydantic import BaseModel, Field
 
 
 llm = get_llm()
+logger = logging.getLogger(__name__)
 # embedding_llm = get_embedding_llm()
 
 class RouteResponse(BaseModel):
@@ -26,17 +32,17 @@ async def trblsht_rewriter(state: State) -> dict:
         content=(
             "You are a **Query Rewriter**. "
             "Given the recent conversation, produce a **stand-alone version of the latest USER question** that:\n\n"
-            "• Preserves the user’s original intent, terminology, and meaning.\n"
-            "• Keeps any alarm/fault codes, or other technical tokens **exactly as written**.\n"
-            "• Add only the **minimal missing context** needed so the question is fully understandable without the chat history.\n"
-            "• Does **not** paraphrase purely for style, guess at details, or answer the question.\n"
-            "• Output **only** the rewritten question text—no explanations, no extra fields."
+            "- Preserves the user's original intent, terminology, and meaning.\n"
+            "- Keeps any alarm/fault codes, or other technical tokens **exactly as written**.\n"
+            "- Add only the **minimal missing context** needed so the question is fully understandable without the chat history.\n"
+            "- Does **not** paraphrase purely for style, guess at details, or answer the question.\n"
+            "- Output **only** the rewritten question text-no explanations, no extra fields."
         )
     )
 
     # Send to LLM as structured output
     result = llm_rewritter.invoke([system, *last_messages])
-    print("Rewritten question:", result.rewritten.strip())
+    logger.debug("Rewritten question: %s", result.rewritten.strip())
     return {"rewritten": result.rewritten.strip()}
 
 
@@ -50,32 +56,46 @@ async def retriever_node(state: State) -> State:
     return {**state, "hits": hits}
 
 async def rerank(state: State) -> dict:
-    """Rerank retrieved_docs by relevance to question using Cohere Rerank."""
-    COHERE_API_KEY = "zOxAfT9v1nO8fk2yFWqcl1TQQcbwnWqDtsVPs6x3"
-    co = cohere.Client(api_key=COHERE_API_KEY)
+    """Rerank retrieved docs by relevance using Cohere, when configured."""
 
-    hits  = state["hits"]
-    query = state["rewritten"]
+    hits = list(state.get("hits") or [])
+    if not hits:
+        logger.debug("No retrieved documents to rerank; returning original state.")
+        return {**state, "hits": hits}
+
+    api_key = os.environ.get("COHERE_API_KEY")
+    if not api_key:
+        logger.warning("COHERE_API_KEY not set; skipping Cohere rerank.")
+        return {**state, "hits": hits}
+
+    co = cohere.Client(api_key=api_key)
+
+    query = state.get("rewritten", "")
     corpus = [d.page_content for d in hits]
 
-    # Models: 'rerank-3.5' (best), 'rerank-3', or 'rerank-lite' (cheaper)
-    resp = co.rerank(
-        model="rerank-english-v3.0",
-        query=query,
-        documents=corpus,
-        top_n=5,   # adjust as you like
-        return_documents=True
-    )
-    results = resp.results
-    top1 = float(results[0].relevance_score)
-    cutoff = top1 * 0.40
-    new_hits = []
-    keep = [r.index for r in results if float(r.relevance_score) >= cutoff]
-    for i in keep:
-        h = hits[i]
-        new_hits.append(h)
-    
-    return {**state, "hits": new_hits}
+    try:
+        resp = co.rerank(
+            model="rerank-english-v3.0",
+            query=query,
+            documents=corpus,
+            top_n=min(5, len(corpus)),
+            return_documents=True,
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.exception("Cohere rerank failed; returning original order: %s", exc)
+        return {**state, "hits": hits}
+
+    results = resp.results or []
+    if not results:
+        logger.debug("Cohere rerank returned no results; returning original order.")
+        return {**state, "hits": hits}
+
+    top1 = float(results[0].relevance_score) if results else 0.0
+    cutoff = top1 * 0.40 if top1 else 0.0
+    keep_indices = [r.index for r in results if float(r.relevance_score) >= cutoff]
+    reordered_hits = [hits[i] for i in keep_indices if i < len(hits)]
+
+    return {**state, "hits": reordered_hits or hits}
 
 
 async def context_window_node(state: State, writer: StreamWriter) -> dict:
@@ -100,26 +120,26 @@ async def context_window_node(state: State, writer: StreamWriter) -> dict:
         """
 
     FORMATTING_RULES = """
-        • Do NOT paraphrase technical values (voltages, jumpers). Repeat exactly.
-        • Format numerical data using GitHub-Flavored Markdown tables (pipes `|`, dashes `-`).
-        • Use numbered lists for procedures. Avoid bullets or code blocks.
+        - Do NOT paraphrase technical values (voltages, jumpers). Repeat exactly.
+        - Format numerical data using GitHub-Flavored Markdown tables (pipes `|`, dashes `-`).
+        - Use numbered lists for procedures. Avoid bullets or code blocks.
         IMPORTANT: Do NOT reference document sections, tables, figures, or page numbers unless the user specifically asked. Only summarize the relevant information.        
         """
 
     SAFETY_AND_TOOLS = """
-        • Mention tools (e.g., breakout box, multimeter) and include safety warnings.
-        • Include critical checks: jumper settings, spool centering, signal verification, swashplate calibration.
+        - Mention tools (e.g., breakout box, multimeter) and include safety warnings.
+        - Include critical checks: jumper settings, spool centering, signal verification, swashplate calibration.
         """
 
     INTERACTIVITY_RULES = f"""
-        • Always end responses with one helpful, clarifying question.
-        • If the question is vague, ask for clarification — don't assume.
-        • Use the follow up provided by the routing agent if the query is vague.
-        • Use a professional tone that encourages technician confidence.
+        - Always end responses with one helpful, clarifying question.
+        - If the question is vague, ask for clarification - don't assume.
+        - Use the follow up provided by the routing agent if the query is vague.
+        - Use a professional tone that encourages technician confidence.
         """
 
     MISSING_INFO_BEHAVIOR = """
-        • Do NOT guess or invent missing steps or values.
+        - Do NOT guess or invent missing steps or values.
         """
 
     SYSTEM_PROMPT = (
@@ -172,3 +192,5 @@ async def context_window_node(state: State, writer: StreamWriter) -> dict:
     return {"context": str(context_text)}
 
 __all__ = ["trblsht_rewriter", "retriever_node", "context_window_node"]
+
+

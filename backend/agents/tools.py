@@ -47,11 +47,11 @@ def _rerank_with_cohere(
     if not views:
         return []
 
-    # api_key = os.environ.get("COHERE_API_KEY")
-    # if not api_key:
-    #     logging.getLogger("tools").warning("COHERE_API_KEY not set; returning top-N without rerank")
-    #     return views[: min(top_n, len(views))]
-    api_key= "zOxAfT9v1nO8fk2yFWqcl1TQQcbwnWqDtsVPs6x3"
+    api_key = os.environ.get("COHERE_API_KEY")
+    if not api_key:
+        logging.getLogger("tools").warning("COHERE_API_KEY not set; returning top-N without rerank")
+        return views[: min(top_n, len(views))]
+
     co = cohere.Client(api_key=api_key)
 
     corpus = [v["page_content"] for v in views]

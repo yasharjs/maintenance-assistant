@@ -1,13 +1,16 @@
-from typing import  Literal
+import logging
+from typing import Literal
 from backend.client import get_llm
 from pydantic import BaseModel, Field
 from langchain_core.messages import SystemMessage
 from langchain_core.messages import HumanMessage, AIMessage
-import uuid, time
+import time
+import uuid
 from types import SimpleNamespace
 from langgraph.types import StreamWriter 
 from backend.custom_langgraph.troubleshoot_graph import State
 llm = get_llm()
+logger = logging.getLogger(__name__)
 
 few_shots = [
     # Single-turn examples
@@ -57,7 +60,7 @@ few_shots = [
     AIMessage(content="mechanical_drawing"),
 
     # Multi-turn: new query switches context
-    HumanMessage(content="my pump isn’t calibrating properly"),
+    HumanMessage(content="my pump isn't calibrating properly"),
     AIMessage(content="troubleshooting"),
     HumanMessage(content="can you show me the wiring diagram for the pump area?"),
     AIMessage(content="mechanical_drawing"),
@@ -111,7 +114,7 @@ routing_descriptions = {
         "- Using a Moog breakout box to validate spool command, feedback, solenoid signals, and enable status\n"
         "- Servicing and replacing pilot filters, contamination screens, and torqueing components to specification\n"
         "- Swash plate angle calibration for both master and slave pumps\n"
-        "- Interpreting voltage readings at test points (PIN1–PIN10) on VT5041 cards\n"
+        "- Interpreting voltage readings at test points (PIN1-PIN10) on VT5041 cards\n"
         "- Matching input/output flow commands with pressure transducers and angle feedback\n"
         "- Diagnosing and resolving servo valve faults (e.g., Not Mechanically Centered, Opening Negative, Valve Ready Signal Fault)\n"
         "Relevant equipment:\n"
@@ -121,11 +124,11 @@ routing_descriptions = {
         "- Husky G-Line, Index, ISB, Hylectric, HyPET, and Quadloc machines\n\n"
         "Example troubleshooting scenarios:\n"
         "- Swash plate angle calibration (master/slave)\n"
-        "- Voltage readings at VT5041 test points (PIN1–PIN10)\n"
+        "- Voltage readings at VT5041 test points (PIN1-PIN10)\n"
         "- Diagnosing servo valve faults (Not Mechanically Centered, Opening Negative, Valve Ready Signal Fault)\n"
         "- Verifying jumper settings and card configurations\n"
         "- Cable integrity, grounding, and noise checks\n\n"
-        "If the user references a table/figure inside a troubleshooting/manual document (e.g., ‘table 2-1’ or 'figure 2-1), route to troubleshooting unless they ask for a schematic/BOM/drawing."
+        "If the user references a table/figure inside a troubleshooting/manual document (e.g., 'table 2-1' or 'figure 2-1), route to troubleshooting unless they ask for a schematic/BOM/drawing."
         "**Routing rule:** If the query mentions a part/component without clearly asking for a drawing/BOM view, default to 'troubleshooting'."
     ),
     "general": (
@@ -150,7 +153,7 @@ async def _hybrid_route_with_followup(query: str, history_msgs):
     llm_resp = await classify_structured(query, history_msgs)
     route = llm_resp["route"]
     follow_up = llm_resp["follow_up"]
-    print(f"LLM routing result: {route} (follow-up: '{follow_up}')")
+    logger.debug("LLM routing result: %s (follow-up: %s)", route, follow_up)
     if route == "uncertain":
          return {"route": "uncertain", "follow_up": follow_up}
 
@@ -164,7 +167,7 @@ async def classify_structured(query: str, history_msgs):
     """
     options = "\n".join([f"{k}: {v}" for k, v in routing_descriptions.items()])
 
-    # We’ll reuse your existing few_shots and pass a compact history
+    # We'll reuse your existing few_shots and pass a compact history
     prompt_msgs = [
         SystemMessage(content=(
             "You are a routing agent for an enterprise maintenance assistant. "
@@ -218,3 +221,4 @@ async def router_node(state: State, writer: StreamWriter) -> dict:
 
  
 __all__ = [ "State", "router_node" ]
+

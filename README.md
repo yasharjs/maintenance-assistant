@@ -134,3 +134,21 @@ UI_CHAT_DESCRIPTION="Your go-to expert for HyPET300 troubleshooting."
 ## License
 This project began from Microsoft's Azure OpenAI chat sample but has been heavily customized for maintenance operations.
 
+## Screenshots
+
+**Home Page**
+
+![Home Page](./images/home.png)
+
+**Open Chat**
+
+![Open chat](./images/troubleshoot.png)
+
+**Mechanical Drawing query - with references**
+
+![Mechanical drawing query](./images/drawing.png)
+
+**Opened References sidebar**
+
+![Open Sidebar](./images/ref-open.png)
+
